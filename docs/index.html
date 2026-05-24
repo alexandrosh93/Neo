@@ -21,45 +21,46 @@
 
     header { text-align: center; margin-bottom: 2rem; }
     header h1 { font-size: 1.6rem; font-weight: 700; color: #013064; }
-    header p { margin-top: 0.4rem; font-size: 0.95rem; color: #4a5568; }
+    header p  { margin-top: 0.4rem; font-size: 0.95rem; color: #4a5568; }
+
+    .lock-bar {
+      display: flex; align-items: center; justify-content: center;
+      gap: 0.5rem; margin-top: 0.6rem;
+      font-size: 0.82rem; font-weight: 600;
+    }
+    .lock-bar.locked   { color: #c53030; }
+    .lock-bar.unlocked { color: #276749; }
+    .lock-bar button {
+      background: none; border: none; padding: 0;
+      font-size: 0.82rem; font-weight: 700; cursor: pointer;
+      text-decoration: underline; flex: none;
+    }
+    .lock-bar.locked   button { color: #c53030; }
+    .lock-bar.unlocked button { color: #276749; }
 
     .card {
-      background: #fff;
-      border-radius: 12px;
+      background: #fff; border-radius: 12px;
       box-shadow: 0 2px 12px rgba(0,0,0,0.10);
-      padding: 1.5rem;
-      width: 100%;
-      max-width: 520px;
-      margin-bottom: 1.5rem;
+      padding: 1.5rem; width: 100%; max-width: 520px; margin-bottom: 1.5rem;
     }
-
     .card h2 {
-      font-size: 1rem;
-      font-weight: 600;
-      color: #013064;
-      margin-bottom: 1rem;
-      border-bottom: 2px solid #e2e8f0;
-      padding-bottom: 0.5rem;
+      font-size: 1rem; font-weight: 600; color: #013064;
+      margin-bottom: 1rem; border-bottom: 2px solid #e2e8f0; padding-bottom: 0.5rem;
     }
 
     .field-group { display: flex; flex-direction: column; gap: 0.75rem; }
 
     label { font-size: 0.85rem; font-weight: 500; color: #4a5568; margin-bottom: 0.25rem; display: block; }
 
-    input[type="datetime-local"], textarea {
-      width: 100%;
-      padding: 0.6rem 0.8rem;
-      border: 1.5px solid #cbd5e0;
-      border-radius: 8px;
-      font-size: 0.95rem;
-      color: #1a202c;
-      background: #f7fafc;
+    input[type="datetime-local"], input[type="password"], textarea {
+      width: 100%; padding: 0.6rem 0.8rem;
+      border: 1.5px solid #cbd5e0; border-radius: 8px;
+      font-size: 0.95rem; color: #1a202c; background: #f7fafc;
       transition: border-color 0.2s;
     }
-
-    input[type="datetime-local"]:focus, textarea:focus {
-      outline: none; border-color: #013064; background: #fff;
-    }
+    input[type="datetime-local"]:focus,
+    input[type="password"]:focus,
+    textarea:focus { outline: none; border-color: #013064; background: #fff; }
 
     textarea { resize: vertical; min-height: 60px; }
 
@@ -69,19 +70,11 @@
     .response-btns { display: flex; gap: 0.5rem; flex-wrap: wrap; }
 
     .resp-btn {
-      flex: 1;
-      min-width: 90px;
-      padding: 0.55rem 0.5rem;
-      border: 2px solid #cbd5e0;
-      border-radius: 8px;
-      background: #f7fafc;
-      color: #4a5568;
-      font-size: 0.9rem;
-      font-weight: 600;
-      cursor: pointer;
-      transition: all 0.15s;
+      flex: 1; min-width: 90px; padding: 0.55rem 0.5rem;
+      border: 2px solid #cbd5e0; border-radius: 8px;
+      background: #f7fafc; color: #4a5568;
+      font-size: 0.9rem; font-weight: 600; cursor: pointer; transition: all 0.15s;
     }
-
     .resp-btn:hover { border-color: #a0aec0; }
     .resp-btn.active-yes  { background: #f0fff4; border-color: #48bb78; color: #276749; }
     .resp-btn.active-no   { background: #fff5f5; border-color: #fc8181; color: #c53030; }
@@ -90,68 +83,51 @@
     .btn-row { display: flex; gap: 0.75rem; margin-top: 1rem; }
 
     button {
-      flex: 1;
-      padding: 0.65rem 1rem;
-      border: none;
-      border-radius: 8px;
-      font-size: 0.9rem;
-      font-weight: 600;
-      cursor: pointer;
+      flex: 1; padding: 0.65rem 1rem; border: none; border-radius: 8px;
+      font-size: 0.9rem; font-weight: 600; cursor: pointer;
       transition: background 0.2s, transform 0.1s;
     }
-
-    button:active { transform: scale(0.97); }
+    button:active  { transform: scale(0.97); }
     button:disabled { opacity: 0.5; cursor: not-allowed; }
 
     .btn-record { background: #013064; color: #fff; }
     .btn-record:hover:not(:disabled) { background: #01245a; }
 
-    .btn-now {
-      background: #e2e8f0; color: #1a202c;
-      flex: 0 0 auto; padding: 0.65rem 0.9rem;
-    }
+    .btn-now { background: #e2e8f0; color: #1a202c; flex: 0 0 auto; padding: 0.65rem 0.9rem; }
     .btn-now:hover { background: #cbd5e0; }
 
+    /* Chart */
     .chart-wrap { position: relative; width: 100%; }
     canvas#chart { width: 100% !important; height: auto; display: block; border-radius: 6px; }
-
     .chart-legend {
       display: flex; gap: 1.2rem; justify-content: center;
       margin-bottom: 0.9rem; flex-wrap: wrap;
     }
     .legend-item { display: flex; align-items: center; gap: 0.35rem; font-size: 0.82rem; font-weight: 600; }
-    .legend-dot { width: 12px; height: 12px; border-radius: 3px; }
+    .legend-dot  { width: 12px; height: 12px; border-radius: 3px; }
     .dot-yes  { background: #48bb78; }
     .dot-no   { background: #fc8181; }
     .dot-none { background: #f6ad55; }
-
     .chart-empty { text-align: center; color: #a0aec0; font-size: 0.9rem; padding: 1.5rem 0; }
 
+    /* Records */
     .records-list { display: flex; flex-direction: column; gap: 0.75rem; }
-
     .record-item {
       background: #f7fafc; border: 1.5px solid #e2e8f0;
       border-radius: 10px; padding: 0.85rem 1rem; position: relative;
     }
-
-    .record-item .record-num { font-size: 0.72rem; font-weight: 700; color: #a0aec0; text-transform: uppercase; letter-spacing: 0.05em; }
+    .record-item .record-num      { font-size: 0.72rem; font-weight: 700; color: #a0aec0; text-transform: uppercase; letter-spacing: 0.05em; }
     .record-item .record-datetime { font-size: 1rem; font-weight: 700; color: #013064; margin-top: 0.2rem; }
-    .record-item .record-note { font-size: 0.85rem; color: #4a5568; margin-top: 0.3rem; white-space: pre-wrap; }
-
+    .record-item .record-note     { font-size: 0.85rem; color: #4a5568; margin-top: 0.3rem; white-space: pre-wrap; }
     .record-item .record-response {
-      display: inline-block;
-      margin-top: 0.45rem;
-      padding: 0.2rem 0.7rem;
-      border-radius: 20px;
-      font-size: 0.82rem;
-      font-weight: 700;
+      display: inline-block; margin-top: 0.45rem;
+      padding: 0.2rem 0.7rem; border-radius: 20px;
+      font-size: 0.82rem; font-weight: 700;
     }
     .resp-tag-yes  { background: #f0fff4; color: #276749; border: 1.5px solid #48bb78; }
     .resp-tag-no   { background: #fff5f5; color: #c53030; border: 1.5px solid #fc8181; }
     .resp-tag-none { background: #fffbeb; color: #92400e; border: 1.5px solid #f6ad55; }
-
     .record-item .record-logged { font-size: 0.75rem; color: #a0aec0; margin-top: 0.4rem; }
-
     .record-item .btn-delete {
       position: absolute; top: 0.65rem; right: 0.75rem;
       background: none; border: none; color: #e53e3e;
@@ -159,24 +135,11 @@
     }
     .record-item .btn-delete:hover { color: #c53030; }
 
-    .empty-state { text-align: center; color: #a0aec0; font-size: 0.9rem; padding: 1.5rem 0; }
-
+    .empty-state   { text-align: center; color: #a0aec0; font-size: 0.9rem; padding: 1.5rem 0; }
     .loading-state { text-align: center; color: #a0aec0; font-size: 0.9rem; padding: 1.5rem 0; }
-
-    .toast {
-      position: fixed; bottom: 1.5rem; left: 50%;
-      transform: translateX(-50%) translateY(80px);
-      background: #013064; color: #fff;
-      padding: 0.65rem 1.4rem; border-radius: 8px;
-      font-size: 0.9rem; font-weight: 600;
-      box-shadow: 0 4px 16px rgba(0,0,0,0.18);
-      transition: transform 0.3s ease; z-index: 999;
-    }
-    .toast.show { transform: translateX(-50%) translateY(0); }
-    .toast.error { background: #c53030; }
+    .error-state   { text-align: center; color: #c53030; font-size: 0.88rem; padding: 1.5rem 0; line-height: 1.6; }
 
     .actions-row { display: flex; justify-content: flex-end; margin-bottom: 0.75rem; }
-
     .btn-clear-all {
       background: none; border: 1.5px solid #e53e3e; color: #e53e3e;
       padding: 0.35rem 0.8rem; border-radius: 6px;
@@ -189,6 +152,43 @@
       font-size: 0.72rem; font-weight: 700; border-radius: 12px;
       padding: 0.1rem 0.55rem; margin-left: 0.4rem; vertical-align: middle;
     }
+
+    /* Toast */
+    .toast {
+      position: fixed; bottom: 1.5rem; left: 50%;
+      transform: translateX(-50%) translateY(80px);
+      background: #013064; color: #fff;
+      padding: 0.65rem 1.4rem; border-radius: 8px;
+      font-size: 0.9rem; font-weight: 600;
+      box-shadow: 0 4px 16px rgba(0,0,0,0.18);
+      transition: transform 0.3s ease; z-index: 999;
+    }
+    .toast.show  { transform: translateX(-50%) translateY(0); }
+    .toast.error { background: #c53030; }
+
+    /* Password modal */
+    .modal-overlay {
+      display: none; position: fixed; inset: 0;
+      background: rgba(0,0,0,0.55);
+      align-items: center; justify-content: center; z-index: 900;
+    }
+    .modal-overlay.open { display: flex; }
+    .modal-box {
+      background: #fff; border-radius: 14px; padding: 2rem;
+      width: 300px; box-shadow: 0 8px 32px rgba(0,0,0,0.2);
+      display: flex; flex-direction: column; gap: 1rem;
+    }
+    .modal-box h3 { font-size: 1.05rem; font-weight: 700; color: #013064; text-align: center; }
+    .modal-error  { color: #c53030; font-size: 0.82rem; text-align: center; min-height: 1em; }
+    .modal-btns   { display: flex; gap: 0.75rem; }
+    .btn-cancel   { background: #e2e8f0; color: #1a202c; }
+    .btn-cancel:hover { background: #cbd5e0; }
+    .btn-unlock   { background: #013064; color: #fff; }
+    .btn-unlock:hover { background: #01245a; }
+
+    /* Change-password section inside settings card */
+    .settings-card { margin-top: 0; }
+    .settings-card .field-group { gap: 0.6rem; }
   </style>
 </head>
 <body>
@@ -196,6 +196,10 @@
   <header>
     <h1>Neoclis Visit Recorder</h1>
     <p>Koullis Flat – log every time you told Neoclis to come</p>
+    <div class="lock-bar locked" id="lock-bar">
+      🔒 Locked &nbsp;
+      <button onclick="openPasswordModal(null)">Unlock to edit</button>
+    </div>
   </header>
 
   <!-- New Entry Form -->
@@ -230,18 +234,14 @@
   <!-- Monthly Chart -->
   <div class="card">
     <h2>Monthly Overview</h2>
-    <div id="chart-container">
-      <p class="chart-empty" id="chart-empty">No data yet — add records to see the chart.</p>
-      <div id="chart-wrap" style="display:none">
-        <div class="chart-legend">
-          <div class="legend-item"><div class="legend-dot dot-yes"></div> Yes</div>
-          <div class="legend-item"><div class="legend-dot dot-no"></div> No</div>
-          <div class="legend-item"><div class="legend-dot dot-none"></div> No Answer</div>
-        </div>
-        <div class="chart-wrap">
-          <canvas id="chart"></canvas>
-        </div>
+    <p class="chart-empty" id="chart-empty">No data yet — add records to see the chart.</p>
+    <div id="chart-wrap" style="display:none">
+      <div class="chart-legend">
+        <div class="legend-item"><div class="legend-dot dot-yes"></div> Yes</div>
+        <div class="legend-item"><div class="legend-dot dot-no"></div> No</div>
+        <div class="legend-item"><div class="legend-dot dot-none"></div> No Answer</div>
       </div>
+      <div class="chart-wrap"><canvas id="chart"></canvas></div>
     </div>
   </div>
 
@@ -256,31 +256,118 @@
     </div>
   </div>
 
+  <!-- Change Password -->
+  <div class="card settings-card">
+    <h2>Change Password</h2>
+    <div class="field-group">
+      <div>
+        <label for="pw-current">Current password</label>
+        <input type="password" id="pw-current" placeholder="Current password" />
+      </div>
+      <div>
+        <label for="pw-new">New password</label>
+        <input type="password" id="pw-new" placeholder="New password (min 4 chars)" />
+      </div>
+      <div>
+        <label for="pw-confirm">Confirm new password</label>
+        <input type="password" id="pw-confirm" placeholder="Repeat new password" />
+      </div>
+      <p id="pw-msg" style="font-size:0.82rem;min-height:1em"></p>
+    </div>
+    <div class="btn-row">
+      <button class="btn-record" onclick="changePassword()">Change Password</button>
+    </div>
+  </div>
+
   <div class="toast" id="toast"></div>
 
+  <!-- Password modal -->
+  <div class="modal-overlay" id="pw-modal">
+    <div class="modal-box">
+      <h3>🔒 Enter Password</h3>
+      <input type="password" id="modal-pw-input" placeholder="Password"
+             onkeydown="if(event.key==='Enter') submitPassword()" />
+      <p class="modal-error" id="modal-pw-error"></p>
+      <div class="modal-btns">
+        <button class="btn-cancel" onclick="closePasswordModal()">Cancel</button>
+        <button class="btn-unlock" onclick="submitPassword()">Unlock</button>
+      </div>
+    </div>
+  </div>
+
   <script>
-    const SUPABASE_URL  = 'https://qqesfuzaezjaznflfdkh.supabase.co';
-    const SUPABASE_KEY  = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InFxZXNmdXphZXpqYXpuZmxmZGtoIiwicm9sZSI6ImFub24iLCJpYXQiOjE3Nzk1MzQyOTgsImV4cCI6MjA5NTExMDI5OH0.JIaSG-aey4v5Z1tS2yKYAH4Zc3z0Cplr9CjHNhuWXFs';
+    const SUPABASE_URL = 'https://qqesfuzaezjaznflfdkh.supabase.co';
+    const SUPABASE_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InFxZXNmdXphZXpqYXpuZmxmZGtoIiwicm9sZSI6ImFub24iLCJpYXQiOjE3Nzk1MzQyOTgsImV4cCI6MjA5NTExMDI5OH0.JIaSG-aey4v5Z1tS2yKYAH4Zc3z0Cplr9CjHNhuWXFs';
     const db = supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
 
-    let selectedResp = '';
+    const PW_KEY     = 'neoclis_pw';
+    const DEFAULT_PW = 'neoclis2024';
 
+    let selectedResp  = '';
+    let unlocked      = false;
+    let pendingAction = null; // function to run after unlock
+
+    /* ── Password helpers ──────────────────────────────────── */
+    function getPassword() { return localStorage.getItem(PW_KEY) || DEFAULT_PW; }
+
+    function updateLockBar() {
+      const bar = document.getElementById('lock-bar');
+      if (unlocked) {
+        bar.className = 'lock-bar unlocked';
+        bar.innerHTML = '🔓 Unlocked &nbsp;<button onclick="lock()">Lock</button>';
+      } else {
+        bar.className = 'lock-bar locked';
+        bar.innerHTML = '🔒 Locked &nbsp;<button onclick="openPasswordModal(null)">Unlock to edit</button>';
+      }
+    }
+
+    function lock() { unlocked = false; updateLockBar(); }
+
+    function openPasswordModal(action) {
+      pendingAction = action;
+      document.getElementById('modal-pw-input').value = '';
+      document.getElementById('modal-pw-error').textContent = '';
+      document.getElementById('pw-modal').classList.add('open');
+      setTimeout(() => document.getElementById('modal-pw-input').focus(), 50);
+    }
+
+    function closePasswordModal() {
+      document.getElementById('pw-modal').classList.remove('open');
+      pendingAction = null;
+    }
+
+    function submitPassword() {
+      const input = document.getElementById('modal-pw-input').value;
+      if (input !== getPassword()) {
+        document.getElementById('modal-pw-error').textContent = 'Incorrect password.';
+        return;
+      }
+      unlocked = true;
+      updateLockBar();
+      closePasswordModal();
+      if (pendingAction) pendingAction();
+    }
+
+    function requireUnlock(action) {
+      if (unlocked) { action(); } else { openPasswordModal(action); }
+    }
+
+    /* ── Form helpers ──────────────────────────────────────── */
     function setNow() {
-      const now = new Date();
-      const pad = n => String(n).padStart(2, '0');
+      const now = new Date(), pad = n => String(n).padStart(2, '0');
       document.getElementById('dt').value =
         `${now.getFullYear()}-${pad(now.getMonth()+1)}-${pad(now.getDate())}T${pad(now.getHours())}:${pad(now.getMinutes())}`;
     }
 
     function setResp(val) {
-      selectedResp = (selectedResp === val) ? '' : val;
+      selectedResp = selectedResp === val ? '' : val;
       document.getElementById('btn-yes').className  = 'resp-btn' + (selectedResp === 'yes'  ? ' active-yes'  : '');
       document.getElementById('btn-no').className   = 'resp-btn' + (selectedResp === 'no'   ? ' active-no'   : '');
       document.getElementById('btn-none').className = 'resp-btn' + (selectedResp === 'none' ? ' active-none' : '');
     }
 
-    function formatDateTime(isoStr) {
-      return new Date(isoStr).toLocaleString('en-GB', {
+    function formatDateTime(iso) {
+      return new Date(iso).toLocaleString('en-GB', {
         weekday: 'short', day: '2-digit', month: 'short', year: 'numeric',
         hour: '2-digit', minute: '2-digit'
       });
@@ -290,76 +377,86 @@
       const t = document.getElementById('toast');
       t.textContent = msg;
       t.className = 'toast' + (isError ? ' error' : '') + ' show';
-      setTimeout(() => t.className = 'toast' + (isError ? ' error' : ''), 2200);
+      setTimeout(() => t.className = 'toast' + (isError ? ' error' : ''), 2400);
     }
 
-    async function addRecord() {
-      const dtVal = document.getElementById('dt').value;
-      if (!dtVal) { showToast('Please select a date & time.', true); return; }
+    /* ── CRUD ──────────────────────────────────────────────── */
+    function addRecord() {
+      requireUnlock(async () => {
+        const dtVal = document.getElementById('dt').value;
+        if (!dtVal) { showToast('Please select a date & time.', true); return; }
 
-      const btn = document.getElementById('btn-save');
-      btn.disabled = true;
-      btn.textContent = 'Saving…';
+        const btn = document.getElementById('btn-save');
+        btn.disabled = true; btn.textContent = 'Saving…';
 
-      const { error } = await db.from('visits').insert({
-        id: Date.now(),
-        datetime: new Date(dtVal).toISOString(),
-        response: selectedResp,
-        note: document.getElementById('note').value.trim(),
-        logged_at: new Date().toISOString()
+        const { error } = await db.from('visits').insert({
+          id: Date.now(),
+          datetime: new Date(dtVal).toISOString(),
+          response: selectedResp,
+          note: document.getElementById('note').value.trim(),
+          logged_at: new Date().toISOString()
+        });
+
+        btn.disabled = false; btn.textContent = 'Save Record';
+        if (error) { showToast('Error: ' + error.message, true); return; }
+
+        document.getElementById('note').value = '';
+        setResp(''); selectedResp = '';
+        showToast('Record saved!');
+        await render();
       });
-
-      btn.disabled = false;
-      btn.textContent = 'Save Record';
-
-      if (error) { showToast('Error: ' + error.message, true); return; }
-
-      document.getElementById('note').value = '';
-      setResp(''); selectedResp = '';
-      showToast('Record saved!');
-      await render();
     }
 
-    async function deleteRecord(id) {
-      const { error } = await db.from('visits').delete().eq('id', id);
-      if (error) { showToast('Error: ' + error.message, true); return; }
-      await render();
+    function deleteRecord(id) {
+      requireUnlock(async () => {
+        const { error } = await db.from('visits').delete().eq('id', id);
+        if (error) { showToast('Error: ' + error.message, true); return; }
+        await render();
+      });
     }
 
-    async function clearAll() {
-      if (!confirm('Delete all records? This cannot be undone.')) return;
-      const { error } = await db.from('visits').delete().gte('id', 0);
-      if (error) { showToast('Error: ' + error.message, true); return; }
-      await render();
+    function clearAll() {
+      requireUnlock(async () => {
+        if (!confirm('Delete all records? This cannot be undone.')) return;
+        const { error } = await db.from('visits').delete().gte('id', 0);
+        if (error) { showToast('Error: ' + error.message, true); return; }
+        await render();
+      });
     }
 
-    function escHtml(str) {
-      return str.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+    function changePassword() {
+      const current = document.getElementById('pw-current').value;
+      const nw      = document.getElementById('pw-new').value;
+      const confirm = document.getElementById('pw-confirm').value;
+      const msg     = document.getElementById('pw-msg');
+
+      if (!current || !nw || !confirm)  { msg.style.color = '#c53030'; msg.textContent = 'Fill in all fields.'; return; }
+      if (current !== getPassword())    { msg.style.color = '#c53030'; msg.textContent = 'Current password is incorrect.'; return; }
+      if (nw !== confirm)               { msg.style.color = '#c53030'; msg.textContent = 'New passwords do not match.'; return; }
+      if (nw.length < 4)               { msg.style.color = '#c53030'; msg.textContent = 'Password must be at least 4 characters.'; return; }
+
+      localStorage.setItem(PW_KEY, nw);
+      document.getElementById('pw-current').value = '';
+      document.getElementById('pw-new').value = '';
+      document.getElementById('pw-confirm').value = '';
+      msg.style.color = '#276749';
+      msg.textContent = 'Password changed successfully!';
     }
 
-    function respTag(r) {
-      if (r === 'yes')  return '<span class="record-response resp-tag-yes">Yes ✓</span>';
-      if (r === 'no')   return '<span class="record-response resp-tag-no">No ✗</span>';
-      if (r === 'none') return '<span class="record-response resp-tag-none">No Answer</span>';
-      return '';
-    }
-
+    /* ── Chart ─────────────────────────────────────────────── */
     function buildMonthlyData(records) {
       const map = {};
       records.forEach(r => {
-        const d = new Date(r.datetime);
+        const d   = new Date(r.datetime);
         const key = `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}`;
         if (!map[key]) map[key] = { yes: 0, no: 0, none: 0 };
-        if (r.response === 'yes')       map[key].yes++;
+        if      (r.response === 'yes')  map[key].yes++;
         else if (r.response === 'no')   map[key].no++;
         else if (r.response === 'none') map[key].none++;
       });
       const keys = Object.keys(map).sort();
       return {
-        labels: keys.map(k => {
-          const [y, m] = k.split('-');
-          return new Date(+y, +m-1, 1).toLocaleString('en-GB', { month: 'short', year: 'numeric' });
-        }),
+        labels: keys.map(k => { const [y,m] = k.split('-'); return new Date(+y,+m-1,1).toLocaleString('en-GB',{month:'short',year:'numeric'}); }),
         yes:  keys.map(k => map[k].yes),
         no:   keys.map(k => map[k].no),
         none: keys.map(k => map[k].none)
@@ -367,14 +464,12 @@
     }
 
     function drawChart(records) {
-      const hasResponses = records.some(r => r.response);
-      const emptyEl = document.getElementById('chart-empty');
-      const wrapEl  = document.getElementById('chart-wrap');
+      const hasResp = records.some(r => r.response);
+      document.getElementById('chart-empty').style.display = hasResp ? 'none' : '';
+      document.getElementById('chart-wrap').style.display  = hasResp ? ''     : 'none';
+      if (!hasResp) return;
 
-      if (!hasResponses) { emptyEl.style.display = ''; wrapEl.style.display = 'none'; return; }
-      emptyEl.style.display = 'none'; wrapEl.style.display = '';
-
-      const data   = buildMonthlyData(records);
+      const data = buildMonthlyData(records);
       const canvas = document.getElementById('chart');
       const DPR = window.devicePixelRatio || 1;
       const W   = canvas.parentElement.clientWidth;
@@ -394,11 +489,11 @@
       const n      = data.labels.length;
       const maxVal = Math.max(1, ...data.yes, ...data.no, ...data.none);
       const yMax   = Math.ceil(maxVal) + 1;
-      const gridSteps = Math.min(yMax, 5);
+      const steps  = Math.min(yMax, 5);
 
       ctx.strokeStyle = '#e2e8f0'; ctx.lineWidth = 1;
-      for (let i = 0; i <= gridSteps; i++) {
-        const yv = yMax * i / gridSteps;
+      for (let i = 0; i <= steps; i++) {
+        const yv = yMax * i / steps;
         const y  = PAD.top + chartH - (yv / yMax) * chartH;
         ctx.beginPath(); ctx.moveTo(PAD.left, y); ctx.lineTo(PAD.left + chartW, y); ctx.stroke();
         ctx.fillStyle = '#a0aec0'; ctx.font = '11px sans-serif';
@@ -410,16 +505,14 @@
       const barW   = Math.max(6, Math.min(22, groupW * 0.22));
       const gap    = barW * 0.35;
       const colors = ['#48bb78', '#fc8181', '#f6ad55'];
-      const series = [data.yes, data.no, data.none];
-
-      series.forEach((s, si) => {
+      [data.yes, data.no, data.none].forEach((s, si) => {
         ctx.fillStyle = colors[si];
         s.forEach((val, i) => {
           if (!val) return;
           const bh = (val / yMax) * chartH;
           const x  = PAD.left + groupW * i + groupW / 2 - (barW * 3 + gap * 2) / 2 + si * (barW + gap);
           const y  = PAD.top + chartH - bh;
-          ctx.beginPath(); ctx.roundRect(x, y, barW, bh, [3, 3, 0, 0]); ctx.fill();
+          ctx.beginPath(); ctx.roundRect(x, y, barW, bh, [3,3,0,0]); ctx.fill();
           ctx.fillStyle = '#4a5568'; ctx.font = 'bold 10px sans-serif';
           ctx.textAlign = 'center'; ctx.textBaseline = 'bottom';
           ctx.fillText(val, x + barW / 2, y - 2);
@@ -429,54 +522,59 @@
 
       ctx.fillStyle = '#4a5568'; ctx.font = '11px sans-serif';
       ctx.textAlign = 'center'; ctx.textBaseline = 'top';
-      data.labels.forEach((lbl, i) => {
-        ctx.fillText(lbl, PAD.left + groupW * i + groupW / 2, PAD.top + chartH + 8);
-      });
+      data.labels.forEach((lbl, i) => ctx.fillText(lbl, PAD.left + groupW * i + groupW / 2, PAD.top + chartH + 8));
 
       ctx.strokeStyle = '#cbd5e0'; ctx.lineWidth = 1.5;
       ctx.beginPath();
       ctx.moveTo(PAD.left, PAD.top); ctx.lineTo(PAD.left, PAD.top + chartH);
-      ctx.lineTo(PAD.left + chartW, PAD.top + chartH);
-      ctx.stroke();
+      ctx.lineTo(PAD.left + chartW, PAD.top + chartH); ctx.stroke();
     }
 
+    /* ── Render ─────────────────────────────────────────────── */
     async function render() {
       const { data: records, error } = await db
-        .from('visits')
-        .select('*')
-        .order('datetime', { ascending: false });
+        .from('visits').select('*').order('datetime', { ascending: false });
+
+      const list = document.getElementById('records-list');
 
       if (error) {
-        document.getElementById('records-list').innerHTML =
-          `<p class="empty-state" style="color:#c53030">Failed to load: ${error.message}</p>`;
+        const isNotFound = error.code === 'PGRST116' || error.message.includes('does not exist') || error.message.includes('404');
+        list.innerHTML = isNotFound
+          ? `<p class="error-state">⚠️ The <strong>visits</strong> table doesn't exist yet.<br>
+             Go to <strong>Supabase → SQL Editor</strong> and run the schema from <code>supabase_schema.sql</code>.</p>`
+          : `<p class="error-state">Error: ${error.message}</p>`;
         return;
       }
 
-      const list     = document.getElementById('records-list');
-      const countEl  = document.getElementById('count');
-      const clearRow = document.getElementById('clear-row');
+      document.getElementById('count').textContent    = records.length;
+      document.getElementById('clear-row').style.display = records.length ? 'flex' : 'none';
 
-      countEl.textContent = records.length;
-      clearRow.style.display = records.length ? 'flex' : 'none';
-
-      if (!records.length) {
-        list.innerHTML = '<p class="empty-state">No records yet. Add your first entry above.</p>';
-      } else {
-        list.innerHTML = records.map((r, i) => `
-          <div class="record-item">
-            <button class="btn-delete" onclick="deleteRecord(${r.id})" title="Delete">&#x2715;</button>
-            <div class="record-num">#${records.length - i}</div>
-            <div class="record-datetime">${formatDateTime(r.datetime)}</div>
-            ${respTag(r.response)}
-            ${r.note ? `<div class="record-note">${escHtml(r.note)}</div>` : ''}
-            <div class="record-logged">Logged on ${new Date(r.logged_at).toLocaleString('en-GB')}</div>
-          </div>
-        `).join('');
-      }
+      list.innerHTML = records.length
+        ? records.map((r, i) => `
+            <div class="record-item">
+              <button class="btn-delete" onclick="deleteRecord(${r.id})" title="Delete">&#x2715;</button>
+              <div class="record-num">#${records.length - i}</div>
+              <div class="record-datetime">${formatDateTime(r.datetime)}</div>
+              ${respTag(r.response)}
+              ${r.note ? `<div class="record-note">${escHtml(r.note)}</div>` : ''}
+              <div class="record-logged">Logged on ${new Date(r.logged_at).toLocaleString('en-GB')}</div>
+            </div>`).join('')
+        : '<p class="empty-state">No records yet. Add your first entry above.</p>';
 
       drawChart(records);
     }
 
+    function escHtml(s) {
+      return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+    }
+    function respTag(r) {
+      if (r === 'yes')  return '<span class="record-response resp-tag-yes">Yes ✓</span>';
+      if (r === 'no')   return '<span class="record-response resp-tag-no">No ✗</span>';
+      if (r === 'none') return '<span class="record-response resp-tag-none">No Answer</span>';
+      return '';
+    }
+
+    /* ── Init ───────────────────────────────────────────────── */
     setNow();
     render();
     window.addEventListener('resize', () => render());
