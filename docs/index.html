@@ -4,6 +4,7 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Neoclis Visit Recorder – Koullis Flat</title>
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script>
   <style>
     *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 
@@ -82,7 +83,6 @@
     }
 
     .resp-btn:hover { border-color: #a0aec0; }
-
     .resp-btn.active-yes  { background: #f0fff4; border-color: #48bb78; color: #276749; }
     .resp-btn.active-no   { background: #fff5f5; border-color: #fc8181; color: #c53030; }
     .resp-btn.active-none { background: #fffbeb; border-color: #f6ad55; color: #92400e; }
@@ -101,9 +101,10 @@
     }
 
     button:active { transform: scale(0.97); }
+    button:disabled { opacity: 0.5; cursor: not-allowed; }
 
     .btn-record { background: #013064; color: #fff; }
-    .btn-record:hover { background: #01245a; }
+    .btn-record:hover:not(:disabled) { background: #01245a; }
 
     .btn-now {
       background: #e2e8f0; color: #1a202c;
@@ -160,6 +161,8 @@
 
     .empty-state { text-align: center; color: #a0aec0; font-size: 0.9rem; padding: 1.5rem 0; }
 
+    .loading-state { text-align: center; color: #a0aec0; font-size: 0.9rem; padding: 1.5rem 0; }
+
     .toast {
       position: fixed; bottom: 1.5rem; left: 50%;
       transform: translateX(-50%) translateY(80px);
@@ -170,6 +173,7 @@
       transition: transform 0.3s ease; z-index: 999;
     }
     .toast.show { transform: translateX(-50%) translateY(0); }
+    .toast.error { background: #c53030; }
 
     .actions-row { display: flex; justify-content: flex-end; margin-bottom: 0.75rem; }
 
@@ -219,7 +223,7 @@
       </div>
     </div>
     <div class="btn-row">
-      <button class="btn-record" onclick="addRecord()">Save Record</button>
+      <button class="btn-record" id="btn-save" onclick="addRecord()">Save Record</button>
     </div>
   </div>
 
@@ -248,22 +252,18 @@
       <button class="btn-clear-all" onclick="clearAll()">Clear All</button>
     </div>
     <div class="records-list" id="records-list">
-      <p class="empty-state">No records yet. Add your first entry above.</p>
+      <p class="loading-state">Loading…</p>
     </div>
   </div>
 
   <div class="toast" id="toast"></div>
 
   <script>
-    const STORAGE_KEY = 'neoclis_visits';
+    const SUPABASE_URL  = 'https://qqesfuzaezjaznflfdkh.supabase.co';
+    const SUPABASE_KEY  = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InFxZXNmdXphZXpqYXpuZmxmZGtoIiwicm9sZSI6ImFub24iLCJpYXQiOjE3Nzk1MzQyOTgsImV4cCI6MjA5NTExMDI5OH0.JIaSG-aey4v5Z1tS2yKYAH4Zc3z0Cplr9CjHNhuWXFs';
+    const db = supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
+
     let selectedResp = '';
-
-    function load() {
-      try { return JSON.parse(localStorage.getItem(STORAGE_KEY)) || []; }
-      catch { return []; }
-    }
-
-    function save(records) { localStorage.setItem(STORAGE_KEY, JSON.stringify(records)); }
 
     function setNow() {
       const now = new Date();
@@ -286,41 +286,51 @@
       });
     }
 
-    function showToast(msg) {
+    function showToast(msg, isError = false) {
       const t = document.getElementById('toast');
       t.textContent = msg;
-      t.classList.add('show');
-      setTimeout(() => t.classList.remove('show'), 2200);
+      t.className = 'toast' + (isError ? ' error' : '') + ' show';
+      setTimeout(() => t.className = 'toast' + (isError ? ' error' : ''), 2200);
     }
 
-    function addRecord() {
+    async function addRecord() {
       const dtVal = document.getElementById('dt').value;
-      if (!dtVal) { showToast('Please select a date & time.'); return; }
+      if (!dtVal) { showToast('Please select a date & time.', true); return; }
 
-      const records = load();
-      records.unshift({
+      const btn = document.getElementById('btn-save');
+      btn.disabled = true;
+      btn.textContent = 'Saving…';
+
+      const { error } = await db.from('visits').insert({
         id: Date.now(),
-        datetime: dtVal,
+        datetime: new Date(dtVal).toISOString(),
         response: selectedResp,
         note: document.getElementById('note').value.trim(),
-        loggedAt: new Date().toISOString()
+        logged_at: new Date().toISOString()
       });
-      save(records);
+
+      btn.disabled = false;
+      btn.textContent = 'Save Record';
+
+      if (error) { showToast('Error: ' + error.message, true); return; }
 
       document.getElementById('note').value = '';
       setResp(''); selectedResp = '';
-      render();
       showToast('Record saved!');
+      await render();
     }
 
-    function deleteRecord(id) {
-      save(load().filter(r => r.id !== id));
-      render();
+    async function deleteRecord(id) {
+      const { error } = await db.from('visits').delete().eq('id', id);
+      if (error) { showToast('Error: ' + error.message, true); return; }
+      await render();
     }
 
-    function clearAll() {
+    async function clearAll() {
       if (!confirm('Delete all records? This cannot be undone.')) return;
-      save([]); render();
+      const { error } = await db.from('visits').delete().gte('id', 0);
+      if (error) { showToast('Error: ' + error.message, true); return; }
+      await render();
     }
 
     function escHtml(str) {
@@ -340,11 +350,10 @@
         const d = new Date(r.datetime);
         const key = `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}`;
         if (!map[key]) map[key] = { yes: 0, no: 0, none: 0 };
-        if (r.response === 'yes')  map[key].yes++;
+        if (r.response === 'yes')       map[key].yes++;
         else if (r.response === 'no')   map[key].no++;
         else if (r.response === 'none') map[key].none++;
       });
-
       const keys = Object.keys(map).sort();
       return {
         labels: keys.map(k => {
@@ -359,46 +368,40 @@
 
     function drawChart(records) {
       const hasResponses = records.some(r => r.response);
-      const emptyEl  = document.getElementById('chart-empty');
-      const wrapEl   = document.getElementById('chart-wrap');
+      const emptyEl = document.getElementById('chart-empty');
+      const wrapEl  = document.getElementById('chart-wrap');
 
-      if (!hasResponses) {
-        emptyEl.style.display = ''; wrapEl.style.display = 'none'; return;
-      }
+      if (!hasResponses) { emptyEl.style.display = ''; wrapEl.style.display = 'none'; return; }
       emptyEl.style.display = 'none'; wrapEl.style.display = '';
 
-      const data = buildMonthlyData(records);
+      const data   = buildMonthlyData(records);
       const canvas = document.getElementById('chart');
       const DPR = window.devicePixelRatio || 1;
-      const W = canvas.parentElement.clientWidth;
-      const H = Math.max(220, Math.min(300, W * 0.55));
+      const W   = canvas.parentElement.clientWidth;
+      const H   = Math.max(220, Math.min(300, W * 0.55));
 
-      canvas.width  = W * DPR;
-      canvas.height = H * DPR;
-      canvas.style.width  = W + 'px';
-      canvas.style.height = H + 'px';
+      canvas.width  = W * DPR; canvas.height = H * DPR;
+      canvas.style.width = W + 'px'; canvas.style.height = H + 'px';
 
       const ctx = canvas.getContext('2d');
       ctx.scale(DPR, DPR);
 
-      const PAD = { top: 20, right: 16, bottom: 48, left: 36 };
+      const PAD    = { top: 20, right: 16, bottom: 48, left: 36 };
       const chartW = W - PAD.left - PAD.right;
       const chartH = H - PAD.top  - PAD.bottom;
-
       ctx.clearRect(0, 0, W, H);
 
-      const n = data.labels.length;
+      const n      = data.labels.length;
       const maxVal = Math.max(1, ...data.yes, ...data.no, ...data.none);
-      const yMax = Math.ceil(maxVal / 1) + 1;
-
+      const yMax   = Math.ceil(maxVal) + 1;
       const gridSteps = Math.min(yMax, 5);
+
       ctx.strokeStyle = '#e2e8f0'; ctx.lineWidth = 1;
       for (let i = 0; i <= gridSteps; i++) {
         const yv = yMax * i / gridSteps;
-        const y = PAD.top + chartH - (yv / yMax) * chartH;
+        const y  = PAD.top + chartH - (yv / yMax) * chartH;
         ctx.beginPath(); ctx.moveTo(PAD.left, y); ctx.lineTo(PAD.left + chartW, y); ctx.stroke();
-
-        ctx.fillStyle = '#a0aec0'; ctx.font = `${11}px sans-serif`;
+        ctx.fillStyle = '#a0aec0'; ctx.font = '11px sans-serif';
         ctx.textAlign = 'right'; ctx.textBaseline = 'middle';
         ctx.fillText(Math.round(yv), PAD.left - 5, y);
       }
@@ -414,24 +417,20 @@
         s.forEach((val, i) => {
           if (!val) return;
           const bh = (val / yMax) * chartH;
-          const x = PAD.left + groupW * i + groupW / 2 - (barW * 3 + gap * 2) / 2 + si * (barW + gap);
-          const y = PAD.top + chartH - bh;
-          ctx.beginPath();
-          ctx.roundRect(x, y, barW, bh, [3, 3, 0, 0]);
-          ctx.fill();
-
-          ctx.fillStyle = '#4a5568'; ctx.font = `bold ${10}px sans-serif`;
+          const x  = PAD.left + groupW * i + groupW / 2 - (barW * 3 + gap * 2) / 2 + si * (barW + gap);
+          const y  = PAD.top + chartH - bh;
+          ctx.beginPath(); ctx.roundRect(x, y, barW, bh, [3, 3, 0, 0]); ctx.fill();
+          ctx.fillStyle = '#4a5568'; ctx.font = 'bold 10px sans-serif';
           ctx.textAlign = 'center'; ctx.textBaseline = 'bottom';
           ctx.fillText(val, x + barW / 2, y - 2);
           ctx.fillStyle = colors[si];
         });
       });
 
-      ctx.fillStyle = '#4a5568'; ctx.font = `${11}px sans-serif`;
+      ctx.fillStyle = '#4a5568'; ctx.font = '11px sans-serif';
       ctx.textAlign = 'center'; ctx.textBaseline = 'top';
       data.labels.forEach((lbl, i) => {
-        const x = PAD.left + groupW * i + groupW / 2;
-        ctx.fillText(lbl, x, PAD.top + chartH + 8);
+        ctx.fillText(lbl, PAD.left + groupW * i + groupW / 2, PAD.top + chartH + 8);
       });
 
       ctx.strokeStyle = '#cbd5e0'; ctx.lineWidth = 1.5;
@@ -441,8 +440,18 @@
       ctx.stroke();
     }
 
-    function render() {
-      const records = load();
+    async function render() {
+      const { data: records, error } = await db
+        .from('visits')
+        .select('*')
+        .order('datetime', { ascending: false });
+
+      if (error) {
+        document.getElementById('records-list').innerHTML =
+          `<p class="empty-state" style="color:#c53030">Failed to load: ${error.message}</p>`;
+        return;
+      }
+
       const list     = document.getElementById('records-list');
       const countEl  = document.getElementById('count');
       const clearRow = document.getElementById('clear-row');
@@ -460,7 +469,7 @@
             <div class="record-datetime">${formatDateTime(r.datetime)}</div>
             ${respTag(r.response)}
             ${r.note ? `<div class="record-note">${escHtml(r.note)}</div>` : ''}
-            <div class="record-logged">Logged on ${new Date(r.loggedAt).toLocaleString('en-GB')}</div>
+            <div class="record-logged">Logged on ${new Date(r.logged_at).toLocaleString('en-GB')}</div>
           </div>
         `).join('');
       }
@@ -470,7 +479,7 @@
 
     setNow();
     render();
-    window.addEventListener('resize', () => drawChart(load()));
+    window.addEventListener('resize', () => render());
   </script>
 </body>
 </html>
