@@ -1,0 +1,476 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Neoclis Visit Recorder – Koullis Flat</title>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      background: #f0f4f8;
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      padding: 2rem 1rem;
+      color: #1a202c;
+    }
+
+    header { text-align: center; margin-bottom: 2rem; }
+    header h1 { font-size: 1.6rem; font-weight: 700; color: #013064; }
+    header p { margin-top: 0.4rem; font-size: 0.95rem; color: #4a5568; }
+
+    .card {
+      background: #fff;
+      border-radius: 12px;
+      box-shadow: 0 2px 12px rgba(0,0,0,0.10);
+      padding: 1.5rem;
+      width: 100%;
+      max-width: 520px;
+      margin-bottom: 1.5rem;
+    }
+
+    .card h2 {
+      font-size: 1rem;
+      font-weight: 600;
+      color: #013064;
+      margin-bottom: 1rem;
+      border-bottom: 2px solid #e2e8f0;
+      padding-bottom: 0.5rem;
+    }
+
+    .field-group { display: flex; flex-direction: column; gap: 0.75rem; }
+
+    label { font-size: 0.85rem; font-weight: 500; color: #4a5568; margin-bottom: 0.25rem; display: block; }
+
+    input[type="datetime-local"], textarea {
+      width: 100%;
+      padding: 0.6rem 0.8rem;
+      border: 1.5px solid #cbd5e0;
+      border-radius: 8px;
+      font-size: 0.95rem;
+      color: #1a202c;
+      background: #f7fafc;
+      transition: border-color 0.2s;
+    }
+
+    input[type="datetime-local"]:focus, textarea:focus {
+      outline: none; border-color: #013064; background: #fff;
+    }
+
+    textarea { resize: vertical; min-height: 60px; }
+
+    .datetime-row { display: flex; gap: 0.5rem; align-items: flex-end; }
+    .datetime-row input { flex: 1; }
+
+    .response-btns { display: flex; gap: 0.5rem; flex-wrap: wrap; }
+
+    .resp-btn {
+      flex: 1;
+      min-width: 90px;
+      padding: 0.55rem 0.5rem;
+      border: 2px solid #cbd5e0;
+      border-radius: 8px;
+      background: #f7fafc;
+      color: #4a5568;
+      font-size: 0.9rem;
+      font-weight: 600;
+      cursor: pointer;
+      transition: all 0.15s;
+    }
+
+    .resp-btn:hover { border-color: #a0aec0; }
+
+    .resp-btn.active-yes  { background: #f0fff4; border-color: #48bb78; color: #276749; }
+    .resp-btn.active-no   { background: #fff5f5; border-color: #fc8181; color: #c53030; }
+    .resp-btn.active-none { background: #fffbeb; border-color: #f6ad55; color: #92400e; }
+
+    .btn-row { display: flex; gap: 0.75rem; margin-top: 1rem; }
+
+    button {
+      flex: 1;
+      padding: 0.65rem 1rem;
+      border: none;
+      border-radius: 8px;
+      font-size: 0.9rem;
+      font-weight: 600;
+      cursor: pointer;
+      transition: background 0.2s, transform 0.1s;
+    }
+
+    button:active { transform: scale(0.97); }
+
+    .btn-record { background: #013064; color: #fff; }
+    .btn-record:hover { background: #01245a; }
+
+    .btn-now {
+      background: #e2e8f0; color: #1a202c;
+      flex: 0 0 auto; padding: 0.65rem 0.9rem;
+    }
+    .btn-now:hover { background: #cbd5e0; }
+
+    .chart-wrap { position: relative; width: 100%; }
+    canvas#chart { width: 100% !important; height: auto; display: block; border-radius: 6px; }
+
+    .chart-legend {
+      display: flex; gap: 1.2rem; justify-content: center;
+      margin-bottom: 0.9rem; flex-wrap: wrap;
+    }
+    .legend-item { display: flex; align-items: center; gap: 0.35rem; font-size: 0.82rem; font-weight: 600; }
+    .legend-dot { width: 12px; height: 12px; border-radius: 3px; }
+    .dot-yes  { background: #48bb78; }
+    .dot-no   { background: #fc8181; }
+    .dot-none { background: #f6ad55; }
+
+    .chart-empty { text-align: center; color: #a0aec0; font-size: 0.9rem; padding: 1.5rem 0; }
+
+    .records-list { display: flex; flex-direction: column; gap: 0.75rem; }
+
+    .record-item {
+      background: #f7fafc; border: 1.5px solid #e2e8f0;
+      border-radius: 10px; padding: 0.85rem 1rem; position: relative;
+    }
+
+    .record-item .record-num { font-size: 0.72rem; font-weight: 700; color: #a0aec0; text-transform: uppercase; letter-spacing: 0.05em; }
+    .record-item .record-datetime { font-size: 1rem; font-weight: 700; color: #013064; margin-top: 0.2rem; }
+    .record-item .record-note { font-size: 0.85rem; color: #4a5568; margin-top: 0.3rem; white-space: pre-wrap; }
+
+    .record-item .record-response {
+      display: inline-block;
+      margin-top: 0.45rem;
+      padding: 0.2rem 0.7rem;
+      border-radius: 20px;
+      font-size: 0.82rem;
+      font-weight: 700;
+    }
+    .resp-tag-yes  { background: #f0fff4; color: #276749; border: 1.5px solid #48bb78; }
+    .resp-tag-no   { background: #fff5f5; color: #c53030; border: 1.5px solid #fc8181; }
+    .resp-tag-none { background: #fffbeb; color: #92400e; border: 1.5px solid #f6ad55; }
+
+    .record-item .record-logged { font-size: 0.75rem; color: #a0aec0; margin-top: 0.4rem; }
+
+    .record-item .btn-delete {
+      position: absolute; top: 0.65rem; right: 0.75rem;
+      background: none; border: none; color: #e53e3e;
+      font-size: 1.1rem; cursor: pointer; padding: 0; flex: none; line-height: 1;
+    }
+    .record-item .btn-delete:hover { color: #c53030; }
+
+    .empty-state { text-align: center; color: #a0aec0; font-size: 0.9rem; padding: 1.5rem 0; }
+
+    .toast {
+      position: fixed; bottom: 1.5rem; left: 50%;
+      transform: translateX(-50%) translateY(80px);
+      background: #013064; color: #fff;
+      padding: 0.65rem 1.4rem; border-radius: 8px;
+      font-size: 0.9rem; font-weight: 600;
+      box-shadow: 0 4px 16px rgba(0,0,0,0.18);
+      transition: transform 0.3s ease; z-index: 999;
+    }
+    .toast.show { transform: translateX(-50%) translateY(0); }
+
+    .actions-row { display: flex; justify-content: flex-end; margin-bottom: 0.75rem; }
+
+    .btn-clear-all {
+      background: none; border: 1.5px solid #e53e3e; color: #e53e3e;
+      padding: 0.35rem 0.8rem; border-radius: 6px;
+      font-size: 0.8rem; font-weight: 600; flex: none;
+    }
+    .btn-clear-all:hover { background: #fff5f5; }
+
+    .badge {
+      display: inline-block; background: #013064; color: #fff;
+      font-size: 0.72rem; font-weight: 700; border-radius: 12px;
+      padding: 0.1rem 0.55rem; margin-left: 0.4rem; vertical-align: middle;
+    }
+  </style>
+</head>
+<body>
+
+  <header>
+    <h1>Neoclis Visit Recorder</h1>
+    <p>Koullis Flat – log every time you told Neoclis to come</p>
+  </header>
+
+  <!-- New Entry Form -->
+  <div class="card">
+    <h2>New Entry</h2>
+    <div class="field-group">
+      <div>
+        <label for="dt">Date &amp; Time told</label>
+        <div class="datetime-row">
+          <input type="datetime-local" id="dt" />
+          <button class="btn-now" onclick="setNow()">Now</button>
+        </div>
+      </div>
+      <div>
+        <label>Neoclis's Response</label>
+        <div class="response-btns">
+          <button type="button" class="resp-btn" id="btn-yes"  onclick="setResp('yes')">Yes ✓</button>
+          <button type="button" class="resp-btn" id="btn-no"   onclick="setResp('no')">No ✗</button>
+          <button type="button" class="resp-btn" id="btn-none" onclick="setResp('none')">No Answer</button>
+        </div>
+      </div>
+      <div>
+        <label for="note">Note (optional)</label>
+        <textarea id="note" placeholder="e.g. Called him, said to come at 5 pm…"></textarea>
+      </div>
+    </div>
+    <div class="btn-row">
+      <button class="btn-record" onclick="addRecord()">Save Record</button>
+    </div>
+  </div>
+
+  <!-- Monthly Chart -->
+  <div class="card">
+    <h2>Monthly Overview</h2>
+    <div id="chart-container">
+      <p class="chart-empty" id="chart-empty">No data yet — add records to see the chart.</p>
+      <div id="chart-wrap" style="display:none">
+        <div class="chart-legend">
+          <div class="legend-item"><div class="legend-dot dot-yes"></div> Yes</div>
+          <div class="legend-item"><div class="legend-dot dot-no"></div> No</div>
+          <div class="legend-item"><div class="legend-dot dot-none"></div> No Answer</div>
+        </div>
+        <div class="chart-wrap">
+          <canvas id="chart"></canvas>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Records List -->
+  <div class="card">
+    <h2>All Records <span class="badge" id="count">0</span></h2>
+    <div class="actions-row" id="clear-row" style="display:none">
+      <button class="btn-clear-all" onclick="clearAll()">Clear All</button>
+    </div>
+    <div class="records-list" id="records-list">
+      <p class="empty-state">No records yet. Add your first entry above.</p>
+    </div>
+  </div>
+
+  <div class="toast" id="toast"></div>
+
+  <script>
+    const STORAGE_KEY = 'neoclis_visits';
+    let selectedResp = '';
+
+    function load() {
+      try { return JSON.parse(localStorage.getItem(STORAGE_KEY)) || []; }
+      catch { return []; }
+    }
+
+    function save(records) { localStorage.setItem(STORAGE_KEY, JSON.stringify(records)); }
+
+    function setNow() {
+      const now = new Date();
+      const pad = n => String(n).padStart(2, '0');
+      document.getElementById('dt').value =
+        `${now.getFullYear()}-${pad(now.getMonth()+1)}-${pad(now.getDate())}T${pad(now.getHours())}:${pad(now.getMinutes())}`;
+    }
+
+    function setResp(val) {
+      selectedResp = (selectedResp === val) ? '' : val;
+      document.getElementById('btn-yes').className  = 'resp-btn' + (selectedResp === 'yes'  ? ' active-yes'  : '');
+      document.getElementById('btn-no').className   = 'resp-btn' + (selectedResp === 'no'   ? ' active-no'   : '');
+      document.getElementById('btn-none').className = 'resp-btn' + (selectedResp === 'none' ? ' active-none' : '');
+    }
+
+    function formatDateTime(isoStr) {
+      return new Date(isoStr).toLocaleString('en-GB', {
+        weekday: 'short', day: '2-digit', month: 'short', year: 'numeric',
+        hour: '2-digit', minute: '2-digit'
+      });
+    }
+
+    function showToast(msg) {
+      const t = document.getElementById('toast');
+      t.textContent = msg;
+      t.classList.add('show');
+      setTimeout(() => t.classList.remove('show'), 2200);
+    }
+
+    function addRecord() {
+      const dtVal = document.getElementById('dt').value;
+      if (!dtVal) { showToast('Please select a date & time.'); return; }
+
+      const records = load();
+      records.unshift({
+        id: Date.now(),
+        datetime: dtVal,
+        response: selectedResp,
+        note: document.getElementById('note').value.trim(),
+        loggedAt: new Date().toISOString()
+      });
+      save(records);
+
+      document.getElementById('note').value = '';
+      setResp(''); selectedResp = '';
+      render();
+      showToast('Record saved!');
+    }
+
+    function deleteRecord(id) {
+      save(load().filter(r => r.id !== id));
+      render();
+    }
+
+    function clearAll() {
+      if (!confirm('Delete all records? This cannot be undone.')) return;
+      save([]); render();
+    }
+
+    function escHtml(str) {
+      return str.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+    }
+
+    function respTag(r) {
+      if (r === 'yes')  return '<span class="record-response resp-tag-yes">Yes ✓</span>';
+      if (r === 'no')   return '<span class="record-response resp-tag-no">No ✗</span>';
+      if (r === 'none') return '<span class="record-response resp-tag-none">No Answer</span>';
+      return '';
+    }
+
+    function buildMonthlyData(records) {
+      const map = {};
+      records.forEach(r => {
+        const d = new Date(r.datetime);
+        const key = `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}`;
+        if (!map[key]) map[key] = { yes: 0, no: 0, none: 0 };
+        if (r.response === 'yes')  map[key].yes++;
+        else if (r.response === 'no')   map[key].no++;
+        else if (r.response === 'none') map[key].none++;
+      });
+
+      const keys = Object.keys(map).sort();
+      return {
+        labels: keys.map(k => {
+          const [y, m] = k.split('-');
+          return new Date(+y, +m-1, 1).toLocaleString('en-GB', { month: 'short', year: 'numeric' });
+        }),
+        yes:  keys.map(k => map[k].yes),
+        no:   keys.map(k => map[k].no),
+        none: keys.map(k => map[k].none)
+      };
+    }
+
+    function drawChart(records) {
+      const hasResponses = records.some(r => r.response);
+      const emptyEl  = document.getElementById('chart-empty');
+      const wrapEl   = document.getElementById('chart-wrap');
+
+      if (!hasResponses) {
+        emptyEl.style.display = ''; wrapEl.style.display = 'none'; return;
+      }
+      emptyEl.style.display = 'none'; wrapEl.style.display = '';
+
+      const data = buildMonthlyData(records);
+      const canvas = document.getElementById('chart');
+      const DPR = window.devicePixelRatio || 1;
+      const W = canvas.parentElement.clientWidth;
+      const H = Math.max(220, Math.min(300, W * 0.55));
+
+      canvas.width  = W * DPR;
+      canvas.height = H * DPR;
+      canvas.style.width  = W + 'px';
+      canvas.style.height = H + 'px';
+
+      const ctx = canvas.getContext('2d');
+      ctx.scale(DPR, DPR);
+
+      const PAD = { top: 20, right: 16, bottom: 48, left: 36 };
+      const chartW = W - PAD.left - PAD.right;
+      const chartH = H - PAD.top  - PAD.bottom;
+
+      ctx.clearRect(0, 0, W, H);
+
+      const n = data.labels.length;
+      const maxVal = Math.max(1, ...data.yes, ...data.no, ...data.none);
+      const yMax = Math.ceil(maxVal / 1) + 1;
+
+      const gridSteps = Math.min(yMax, 5);
+      ctx.strokeStyle = '#e2e8f0'; ctx.lineWidth = 1;
+      for (let i = 0; i <= gridSteps; i++) {
+        const yv = yMax * i / gridSteps;
+        const y = PAD.top + chartH - (yv / yMax) * chartH;
+        ctx.beginPath(); ctx.moveTo(PAD.left, y); ctx.lineTo(PAD.left + chartW, y); ctx.stroke();
+
+        ctx.fillStyle = '#a0aec0'; ctx.font = `${11}px sans-serif`;
+        ctx.textAlign = 'right'; ctx.textBaseline = 'middle';
+        ctx.fillText(Math.round(yv), PAD.left - 5, y);
+      }
+
+      const groupW = chartW / n;
+      const barW   = Math.max(6, Math.min(22, groupW * 0.22));
+      const gap    = barW * 0.35;
+      const colors = ['#48bb78', '#fc8181', '#f6ad55'];
+      const series = [data.yes, data.no, data.none];
+
+      series.forEach((s, si) => {
+        ctx.fillStyle = colors[si];
+        s.forEach((val, i) => {
+          if (!val) return;
+          const bh = (val / yMax) * chartH;
+          const x = PAD.left + groupW * i + groupW / 2 - (barW * 3 + gap * 2) / 2 + si * (barW + gap);
+          const y = PAD.top + chartH - bh;
+          ctx.beginPath();
+          ctx.roundRect(x, y, barW, bh, [3, 3, 0, 0]);
+          ctx.fill();
+
+          ctx.fillStyle = '#4a5568'; ctx.font = `bold ${10}px sans-serif`;
+          ctx.textAlign = 'center'; ctx.textBaseline = 'bottom';
+          ctx.fillText(val, x + barW / 2, y - 2);
+          ctx.fillStyle = colors[si];
+        });
+      });
+
+      ctx.fillStyle = '#4a5568'; ctx.font = `${11}px sans-serif`;
+      ctx.textAlign = 'center'; ctx.textBaseline = 'top';
+      data.labels.forEach((lbl, i) => {
+        const x = PAD.left + groupW * i + groupW / 2;
+        ctx.fillText(lbl, x, PAD.top + chartH + 8);
+      });
+
+      ctx.strokeStyle = '#cbd5e0'; ctx.lineWidth = 1.5;
+      ctx.beginPath();
+      ctx.moveTo(PAD.left, PAD.top); ctx.lineTo(PAD.left, PAD.top + chartH);
+      ctx.lineTo(PAD.left + chartW, PAD.top + chartH);
+      ctx.stroke();
+    }
+
+    function render() {
+      const records = load();
+      const list     = document.getElementById('records-list');
+      const countEl  = document.getElementById('count');
+      const clearRow = document.getElementById('clear-row');
+
+      countEl.textContent = records.length;
+      clearRow.style.display = records.length ? 'flex' : 'none';
+
+      if (!records.length) {
+        list.innerHTML = '<p class="empty-state">No records yet. Add your first entry above.</p>';
+      } else {
+        list.innerHTML = records.map((r, i) => `
+          <div class="record-item">
+            <button class="btn-delete" onclick="deleteRecord(${r.id})" title="Delete">&#x2715;</button>
+            <div class="record-num">#${records.length - i}</div>
+            <div class="record-datetime">${formatDateTime(r.datetime)}</div>
+            ${respTag(r.response)}
+            ${r.note ? `<div class="record-note">${escHtml(r.note)}</div>` : ''}
+            <div class="record-logged">Logged on ${new Date(r.loggedAt).toLocaleString('en-GB')}</div>
+          </div>
+        `).join('');
+      }
+
+      drawChart(records);
+    }
+
+    setNow();
+    render();
+    window.addEventListener('resize', () => drawChart(load()));
+  </script>
+</body>
+</html>
