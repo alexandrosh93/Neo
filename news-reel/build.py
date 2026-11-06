@@ -1,182 +1,362 @@
 #!/usr/bin/env python3
-"""Build a vertical (9:16) news reel with Greek voiceover from script.json.
+"""Build a vertical (9:16) "ΠΑΣΑ στα ΝΕΑ" news reel with Greek voiceover.
 
 Usage: python3 build.py [script.json] [output.mp4]
 
-Voice: tries Microsoft Neural TTS (edge-tts, el-GR-NestorasNeural); if it is
-unreachable, falls back to offline espeak-ng + MBROLA (mb-gr2, male).
-Needs: ffmpeg, Pillow, and edge-tts or espeak-ng (+ mbrola-gr2).
+Voice: Microsoft Neural TTS via edge-tts (default el-GR-NestorasNeural, male),
+with word-synced captions. If the service is unreachable it falls back to
+offline espeak-ng + MBROLA (mb-gr2), which sounds robotic.
+Needs: ffmpeg, Pillow, edge-tts (pip). Network: speech.platform.bing.com.
 """
-import json, os, subprocess, sys, tempfile, shutil, math
-from PIL import Image, ImageDraw, ImageFont
+import asyncio, json, math, os, random, re, shutil, subprocess, sys, tempfile
+from PIL import Image, ImageDraw, ImageFilter, ImageFont
 
+HERE = os.path.dirname(os.path.abspath(__file__))
 W, H, FPS = 1080, 1920, 30
-FONT_B = "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf"
-FONT_R = "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf"
-BG_TOP, BG_BOT = (10, 25, 60), (2, 8, 22)
-ACCENT, ACCENT2, WHITE, GREY = (255, 196, 0), (0, 170, 110), (255, 255, 255), (170, 185, 210)
+FD = os.path.join(HERE, "assets", "fonts")
+F_BLACK_I = os.path.join(FD, "FiraSansExtraCondensed-900i.ttf")
+F_XB_I = os.path.join(FD, "FiraSansExtraCondensed-800i.ttf")
+F_BOLD = os.path.join(FD, "FiraSansExtraCondensed-700.ttf")
+F_SEMI = os.path.join(FD, "FiraSansExtraCondensed-600.ttf")
 
-def font(path, size): return ImageFont.truetype(path, size)
+BG1, BG2 = (14, 38, 46), (5, 16, 20)
+GREEN, GREEN_D = (24, 226, 120), (10, 150, 80)
+YELLOW, WHITE, INK = (255, 222, 0), (255, 255, 255), (12, 18, 20)
+PANEL = (10, 26, 32)
+PAPER = (240, 240, 236)
 
-# ---------- voice ----------
-def tts(text, out_wav, tmp):
+_fc = {}
+def font(path, size):
+    k = (path, size)
+    if k not in _fc: _fc[k] = ImageFont.truetype(path, size)
+    return _fc[k]
+
+def ease(t):
+    t = max(0.0, min(1.0, t)); return 1 - (1 - t) ** 3
+
+# ---------------------------------------------------------------- voice
+async def _edge(text, voice, rate, mp3):
+    import edge_tts
+    proxy = os.environ.get("HTTPS_PROXY") or os.environ.get("https_proxy")
+    com = edge_tts.Communicate(text, voice, rate=rate, proxy=proxy, boundary="WordBoundary")
+    words = []
+    with open(mp3, "wb") as fh:
+        async for ch in com.stream():
+            if ch["type"] == "audio": fh.write(ch["data"])
+            elif ch["type"] == "WordBoundary":
+                words.append((ch["offset"] / 1e7, (ch["offset"] + ch["duration"]) / 1e7, ch["text"]))
+    return words
+
+def tts(text, cfg, wav, tmp):
     mp3 = os.path.join(tmp, "e.mp3")
-    if shutil.which("edge-tts"):
-        r = subprocess.run(["edge-tts", "--voice", "el-GR-NestorasNeural", "--rate", "+8%",
-                            "--text", text, "--write-media", mp3],
-                           capture_output=True, timeout=60)
-        if r.returncode == 0 and os.path.getsize(mp3) > 1000:
-            subprocess.run(["ffmpeg", "-y", "-loglevel", "error", "-i", mp3, "-ar", "44100", "-ac", "1", out_wav], check=True)
-            return "edge-tts (Nestoras)"
+    try:
+        words = asyncio.run(_edge(text, cfg.get("voice", "el-GR-NestorasNeural"), cfg.get("rate", "+0%"), mp3))
+        if os.path.getsize(mp3) > 1000:
+            subprocess.run(["ffmpeg", "-y", "-loglevel", "error", "-i", mp3, "-ar", "44100", "-ac", "1", wav], check=True)
+            return words, "edge-tts"
+    except Exception as e:
+        print("edge-tts failed, using offline voice:", e)
     raw = os.path.join(tmp, "raw.wav")
-    subprocess.run(["espeak-ng", "-v", "mb-gr2", "-s", "160", "-p", "45", "-w", raw, text], check=True)
-    subprocess.run(["ffmpeg", "-y", "-loglevel", "error", "-i", raw,
-                    "-af", "highpass=f=70,acompressor=threshold=-18dB:ratio=3,loudnorm=I=-16",
-                    "-ar", "44100", "-ac", "1", out_wav], check=True)
-    return "espeak-ng/MBROLA (mb-gr2)"
+    subprocess.run(["espeak-ng", "-v", "mb-gr2", "-s", "160", "-w", raw, text], check=True, capture_output=True)
+    subprocess.run(["ffmpeg", "-y", "-loglevel", "error", "-i", raw, "-af", "loudnorm=I=-16",
+                    "-ar", "44100", "-ac", "1", wav], check=True)
+    d, toks = duration(wav), text.split()
+    per = d / max(1, len(toks))
+    return [(i * per, (i + 1) * per, w) for i, w in enumerate(toks)], "espeak-ng (offline)"
 
-def duration(path):
+def duration(p):
     return float(subprocess.check_output(["ffprobe", "-v", "error", "-show_entries", "format=duration",
-                                          "-of", "csv=p=0", path]).strip())
+                                          "-of", "csv=p=0", p]).strip())
 
-# ---------- drawing ----------
-def background():
-    img = Image.new("RGB", (W, H))
-    d = ImageDraw.Draw(img)
-    for y in range(H):
-        t = y / H
-        d.line([(0, y), (W, y)], fill=tuple(int(a + (b - a) * t) for a, b in zip(BG_TOP, BG_BOT)))
-    # pitch lines motif
-    for i, r in enumerate((260, 420)):
-        d.ellipse([W // 2 - r, 1350 - r, W // 2 + r, 1350 + r], outline=(25, 50, 95), width=4)
-    d.line([(0, 1350), (W, 1350)], fill=(25, 50, 95), width=4)
-    return img
+def chunks(words, text, maxw=4):
+    """Group word timings into caption chunks, breaking at punctuation in the source text."""
+    out, cur, pos = [], [], 0
+    for a, b, w in words:
+        i = text.find(w, pos)
+        if i >= 0:
+            pos = i + len(w)
+            m = re.match(r"[.,!?;:·…]+", text[pos:])
+            if m: w += m.group(0); pos += len(m.group(0))
+        cur.append((a, b, w))
+        if len(cur) >= maxw or re.search(r"[.,!?;:·…]$", w):
+            out.append(cur); cur = []
+    if cur: out.append(cur)
+    return out
 
-BG = None
+# ---------------------------------------------------------------- shapes
+def torn_rect(d, box, fill, rnd, jag=7, step=14):
+    x0, y0, x1, y1 = box
+    pts = []
+    for x in range(int(x0), int(x1) + 1, step): pts.append((x, y0 + rnd.uniform(-jag, jag)))
+    for y in range(int(y0), int(y1) + 1, step): pts.append((x1 + rnd.uniform(-jag / 2, jag / 2), y))
+    for x in range(int(x1), int(x0) - 1, -step): pts.append((x, y1 + rnd.uniform(-jag, jag)))
+    for y in range(int(y1), int(y0) - 1, -step): pts.append((x0 + rnd.uniform(-jag / 2, jag / 2), y))
+    d.polygon(pts, fill=fill)
 
-def ease(t): t = max(0, min(1, t)); return 1 - (1 - t) ** 3
+def paper(size, rnd, fill=PAPER):
+    w, h = size
+    im = Image.new("RGBA", (w + 40, h + 40), (0, 0, 0, 0))
+    sh = Image.new("RGBA", im.size, (0, 0, 0, 0))
+    torn_rect(ImageDraw.Draw(sh), (24, 26, w + 24, h + 26), (0, 0, 0, 150), random.Random(rnd.random()))
+    im.alpha_composite(sh.filter(ImageFilter.GaussianBlur(8)))
+    torn_rect(ImageDraw.Draw(im), (20, 20, w + 20, h + 20), fill + (255,), rnd)
+    # paper grain
+    g = Image.effect_noise((w + 40, h + 40), 22).convert("L")
+    grain = Image.new("RGBA", im.size, (0, 0, 0, 0))
+    grain.putalpha(g.point(lambda v: max(0, v - 120) // 4))
+    a = im.getchannel("A")
+    im.alpha_composite(grain)
+    im.putalpha(a)
+    return im
 
-def wrap(d, text, f, maxw):
-    words, lines, cur = text.split(), [], ""
-    for w in words:
-        test = (cur + " " + w).strip()
-        if d.textlength(test, font=f) <= maxw: cur = test
+def para(d, xy, w, h, skew, fill):
+    x, y = xy
+    d.polygon([(x + skew, y), (x + w + skew, y), (x + w, y + h), (x, y + h)], fill=fill)
+
+def wrap(text, f, maxw):
+    d = ImageDraw.Draw(Image.new("L", (1, 1)))
+    lines, cur = [], ""
+    for w in text.split():
+        t = (cur + " " + w).strip()
+        if d.textlength(t, font=f) <= maxw: cur = t
         else: lines.append(cur); cur = w
     if cur: lines.append(cur)
     return lines
 
-def ctext(d, y, text, f, fill):
-    d.text(((W - d.textlength(text, font=f)) / 2, y), text, font=f, fill=fill)
+def rich(d, xy, line, f, base, hi):
+    """Draw a line where [bracketed] parts are highlighted."""
+    x, y = xy
+    for part in re.split(r"(\[[^\]]*\])", line):
+        if not part: continue
+        col = hi if part.startswith("[") else base
+        txt = part.strip("[]")
+        d.text((x, y), txt, font=f, fill=col)
+        x += d.textlength(txt, font=f)
+    return x
 
-def header(d, meta, n, total):
-    d.rectangle([0, 0, W, 210], fill=(5, 14, 36))
-    d.rectangle([0, 210, W, 218], fill=ACCENT)
-    ctext(d, 50, meta["title"], font(FONT_B, 64), WHITE)
-    ctext(d, 135, meta["subtitle"], font(FONT_R, 38), GREY)
-    # story dots
-    seg = (W - 120) / total
-    for i in range(total):
-        x0 = 60 + i * seg + 6
-        d.rounded_rectangle([x0, 250, x0 + seg - 12, 260], radius=5, fill=ACCENT if i <= n else (40, 60, 100))
+def rich_len(d, line, f):
+    return d.textlength(line.replace("[", "").replace("]", ""), font=f)
 
-def caption(d, text, t_frac):
-    f = font(FONT_B, 46)
-    lines = wrap(d, text, f, W - 160)
-    # show a moving window of 3 lines, synced roughly to audio progress
-    total = len(lines); win = 3
-    start = min(max(0, int(t_frac * total) - 1), max(0, total - win))
-    shown = lines[start:start + win]
-    top = 1560
-    d.rounded_rectangle([50, top - 30, W - 50, top + 3 * 66 + 20], radius=28, fill=(0, 0, 0))
-    for i, ln in enumerate(shown):
-        ctext(d, top + i * 66, ln, f, WHITE)
-
-def card(img, slide, p):
+# ---------------------------------------------------------------- layers
+def background():
+    img = Image.new("RGB", (W, H))
     d = ImageDraw.Draw(img)
-    off = int((1 - ease(p)) * 400)
-    if slide["type"] == "match":
-        y = 470 + off
-        d.rounded_rectangle([60, y, W - 60, y + 760], radius=40, fill=(18, 36, 78), outline=ACCENT, width=5)
-        fT = font(FONT_B, 58)
-        for k, team in enumerate((slide["home"], slide["away"])):
-            ty = y + 70 + k * 470
-            ctext(d, ty, team, fT, WHITE)
-        sf = font(FONT_B, 190)
-        ctext(d, y + 200, slide["score"], sf, ACCENT)
-        d.rounded_rectangle([140, y + 640, W - 140, y + 720], radius=40, fill=ACCENT2)
-        ctext(d, y + 652, slide["note"], font(FONT_B, 42), WHITE)
-        ctext(d, y + 420, "ΤΕΛΙΚΟ", font(FONT_R, 36), GREY)
-    elif slide["type"] == "table":
-        y = 430 + off
-        ctext(d, y, slide["headline"], font(FONT_B, 72), ACCENT)
-        for i, (pos, team, pts) in enumerate(slide["rows"]):
-            ry = y + 150 + i * 220
-            d.rounded_rectangle([60, ry, W - 60, ry + 180], radius=30,
-                                fill=(18, 36, 78) if i else (60, 48, 0), outline=ACCENT if i == 0 else (50, 80, 140), width=4)
-            d.text((110, ry + 50), pos, font=font(FONT_B, 76), fill=ACCENT)
-            d.text((220, ry + 55), team, font=font(FONT_B, 64), fill=WHITE)
-            pf = font(FONT_B, 76)
-            d.text((W - 110 - d.textlength(pts, font=pf), ry + 50), pts, font=pf, fill=WHITE)
-    else:  # intro / outro
-        y = 650 + off
-        ball = 150
-        d.ellipse([W / 2 - ball, y - 40, W / 2 + ball, y - 40 + 2 * ball], fill=WHITE, outline=ACCENT, width=8)
-        ctext(d, y + 50, "⚽" if False else "", font(FONT_B, 10), WHITE)
-        # pentagon pattern
-        cx, cy = W / 2, y - 40 + ball
-        pts = [(cx + 60 * math.cos(math.radians(-90 + 72 * k)), cy + 60 * math.sin(math.radians(-90 + 72 * k))) for k in range(5)]
-        d.polygon(pts, fill=(10, 25, 60))
-        fH = font(FONT_B, 80)
-        for i, ln in enumerate(wrap(d, slide["headline"], fH, W - 140)):
-            ctext(d, y + 330 + i * 100, ln, fH, ACCENT if slide["type"] == "intro" else WHITE)
+    for y in range(H):
+        t = abs(y / H - 0.45) * 1.6
+        d.line([(0, y), (W, y)], fill=tuple(int(a + (b - a) * min(1, t)) for a, b in zip(BG1, BG2)))
+    # grunge noise
+    n = Image.effect_noise((W, H), 40).convert("L").point(lambda v: v // 10)
+    img = Image.composite(Image.new("RGB", (W, H), (40, 70, 75)), img, n)
+    d = ImageDraw.Draw(img, "RGBA")
+    # halftone corners
+    for cx, cy in ((W, 0), (0, H), (W, H * 0.55)):
+        for gx in range(0, 420, 18):
+            for gy in range(0, 420, 18):
+                px, py = cx + (gx if cx == 0 else -gx), cy + (gy if cy == 0 else -gy)
+                r = max(0, 6 - math.hypot(gx, gy) / 70)
+                if r > 0.6: d.ellipse([px - r, py - r, px + r, py + r], fill=GREEN + (70,))
+    # diagonal stripes
+    def stripes(x, y, n, length, width, gap, alpha, flip=1):
+        for i in range(n):
+            ox = x + i * gap * flip
+            d.polygon([(ox, y), (ox + width * flip, y), (ox + (width - length) * flip, y + length),
+                       (ox - length * flip, y + length)], fill=GREEN + (alpha,))
+    stripes(-40, -60, 4, 260, 28, 46, 200)
+    stripes(W - 30, 300, 4, 180, 22, 40, 170, -1)
+    stripes(-60, H - 480, 5, 260, 24, 44, 190)
+    stripes(W + 40, H - 380, 5, 300, 26, 46, 210, -1)
+    return img
 
-def render_slide(proc, meta, slide, n, total, dur):
-    frames = int(round(dur * FPS))
-    for f in range(frames):
-        img = BG.copy()
-        d = ImageDraw.Draw(img)
-        header(d, meta, n, total)
-        card(img, slide, f / (0.45 * FPS))
-        caption(d, slide["voice"], f / max(1, frames))
-        proc.stdin.write(img.tobytes())
+def title_layer(rnd, maxw=1010):
+    """The torn-paper 'ΠΑΣΑ στα ΝΕΑ' logotype, laid out from measured text and fitted to maxw."""
+    fbig, fsm = font(F_BLACK_I, 240), font(F_BLACK_I, 104)
+    m = ImageDraw.Draw(Image.new("L", (1, 1)))
+    w1, w3 = m.textlength("ΠΑΣΑ", font=fbig), m.textlength("ΝΕΑ", font=fbig)
+    pw, gw = int(w1 + 90), int(w3 + 90)
+    yw, overlap = 200, 70
+    gx = pw + yw - 2 * overlap
+    L = Image.new("RGBA", (gx + gw + 40, 360), (0, 0, 0, 0))
+    p = paper((pw, 250), rnd).rotate(2.5, expand=True, resample=Image.BICUBIC)
+    L.alpha_composite(p, (0, 30))
+    g = Image.new("RGBA", (gw, 260), (0, 0, 0, 0))
+    gd = ImageDraw.Draw(g)
+    torn_rect(gd, (0, 10, gw, 250), GREEN_D + (255,), rnd)
+    torn_rect(gd, (24, 0, gw - 20, 230), GREEN + (255,), rnd)
+    torn_rect(gd, (gw // 2, 40, gw, 240), (16, 110, 60, 255), rnd)
+    L.alpha_composite(g.rotate(-2, expand=True, resample=Image.BICUBIC), (gx, 20))
+    d = ImageDraw.Draw(L)
+    d.text((60, 32), "ΠΑΣΑ", font=fbig, fill=INK)
+    d.text((gx + 45, 22), "ΝΕΑ", font=fbig, fill=WHITE, stroke_width=3, stroke_fill=INK)
+    y = Image.new("RGBA", (yw, 120), (0, 0, 0, 0))
+    yd = ImageDraw.Draw(y)
+    yd.rectangle([0, 0, yw, 120], fill=YELLOW)
+    yd.text((yw // 2, 58), "στα", font=fsm, fill=INK, anchor="mm")
+    L.alpha_composite(y.rotate(-4, expand=True, resample=Image.BICUBIC), (pw - overlap, 140))
+    d.line([(gx + 20, 312), (gx + gw - 10, 298)], fill=YELLOW, width=12)
+    if L.width > maxw:
+        L = L.resize((maxw, int(L.height * maxw / L.width)), Image.LANCZOS)
+    return L
 
+def story_layer(s, rnd, compact=False):
+    """Tag + dark headline panel (+ torn paper body). Returns RGBA, anchor = top-left."""
+    hf = font(F_BLACK_I, 76 if compact else 128)
+    tf = font(F_XB_I, 30 if compact else 46)
+    pw = 600 if compact else 960
+    lh = int(hf.size * 0.98)
+    ph = lh * len(s["headline"]) + (60 if compact else 90)
+    tag_h = 48 if compact else 72
+    L = Image.new("RGBA", (W, 900), (0, 0, 0, 0))
+    d = ImageDraw.Draw(L)
+    top = tag_h - 14
+    # panel
+    para(d, (20, top), pw, ph, 0, PANEL + (255,))
+    d.rectangle([20, top + 14, 34 if not compact else 30, top + ph - 14], fill=GREEN)
+    d.polygon([(pw + 10, top), (pw + 40, top), (pw + 10, top + ph), (pw - 20, top + ph)], fill=YELLOW)
+    # tag
+    tw = d.textlength(s["tag"], font=tf) + (40 if compact else 60)
+    para(d, (40, 0), tw, tag_h, 14, YELLOW)
+    d.text((40 + 14 + (tw - d.textlength(s["tag"], font=tf)) / 2 - 6, tag_h / 2), s["tag"], font=tf, fill=INK, anchor="lm")
+    # headline
+    x0 = 66 if compact else 80
+    y = top + (24 if compact else 36)
+    longest = 0
+    for ln in s["headline"]:
+        rich(d, (x0, y), ln, hf, WHITE, YELLOW)
+        longest = max(longest, rich_len(d, ln, hf)); y += lh
+    d.rectangle([x0, y + 6, x0 + min(longest + 20, pw - 80), y + (12 if compact else 18)], fill=GREEN)
+    bottom = top + ph
+    if s.get("body"):
+        bf = font(F_SEMI, 34 if compact else 56)
+        bw = 390 if compact else 840
+        lines = wrap(s["body"], bf, bw)
+        bl = int(bf.size * 1.22)
+        bh = bl * len(lines) + (34 if compact else 70)
+        p = paper((bw + (40 if compact else 80), bh), rnd)
+        pd = ImageDraw.Draw(p)
+        for i, ln in enumerate(lines):
+            pd.text((40 if compact else 60, 20 + (17 if compact else 35) + i * bl), ln, font=bf, fill=INK)
+        p = p.rotate(rnd.uniform(-1.2, 1.2), expand=True, resample=Image.BICUBIC)
+        if compact:
+            L.alpha_composite(p, (pw - 10, max(0, top + ph // 2 - p.height // 2)))
+            bottom = max(bottom, top + ph // 2 + p.height // 2)
+        else:
+            L.alpha_composite(p, (60, bottom + 20)); bottom += 20 + p.height
+    return L.crop((0, 0, W, int(bottom) + 10))
+
+def draw_caption(img, chunk, t):
+    if not chunk: return
+    d = ImageDraw.Draw(img)
+    f = font(F_BLACK_I, 76)
+    words = [w[2] for w in chunk]
+    lines, cur = [], []
+    for i, w in enumerate(words):
+        test = " ".join(words[j] for j in cur + [i])
+        if cur and d.textlength(test, font=f) > W - 140: lines.append(cur); cur = [i]
+        else: cur.append(i)
+    lines.append(cur)
+    y = 1555 - (len(lines) - 1) * 44
+    for ln in lines:
+        text = " ".join(words[i] for i in ln)
+        x = (W - d.textlength(text, font=f)) / 2
+        for i in ln:
+            active = chunk[i][0] <= t < chunk[i][1] + 0.08
+            d.text((x, y), words[i], font=f, fill=YELLOW if active else WHITE, stroke_width=7, stroke_fill=INK)
+            x += d.textlength(words[i] + " ", font=f)
+        y += 88
+
+# ---------------------------------------------------------------- main
 def main():
-    global BG
-    here = os.path.dirname(os.path.abspath(__file__))
-    src = sys.argv[1] if len(sys.argv) > 1 else os.path.join(here, "script.json")
-    out = sys.argv[2] if len(sys.argv) > 2 else os.path.join(here, "reel.mp4")
-    meta = json.load(open(src, encoding="utf-8"))
-    BG = background()
+    src = sys.argv[1] if len(sys.argv) > 1 else os.path.join(HERE, "script.json")
+    out = sys.argv[2] if len(sys.argv) > 2 else os.path.join(HERE, "reel.mp4")
+    cfg = json.load(open(src, encoding="utf-8"))
+    rnd = random.Random(7)
     tmp = tempfile.mkdtemp()
-    slides = meta["slides"]
-    wavs, durs, engine = [], [], None
-    for i, s in enumerate(slides):
-        w = os.path.join(tmp, f"v{i}.wav")
-        engine = tts(s["voice"], w, tmp)
-        durs.append(duration(w) + 0.5)
-        wavs.append(w)
+
+    segments = [("intro", cfg["intro"])] + [("story", s) for s in cfg["stories"]] + [("recap", cfg["outro"])]
+    audio = []
+    for i, (_, s) in enumerate(segments):
+        wav = os.path.join(tmp, f"v{i}.wav")
+        words, engine = tts(s["voice"], cfg, wav, tmp)
+        lead = 0.25
+        dur = duration(wav) + lead + (1.2 if i == len(segments) - 1 else 0.35)
+        audio.append((wav, [(a + lead, b + lead, w) for a, b, w in words], dur, lead))
     print("voice engine:", engine)
-    # audio: each clip padded to its slide length
-    concat = os.path.join(tmp, "list.txt")
-    with open(concat, "w") as fh:
-        for i, w in enumerate(wavs):
-            p = os.path.join(tmp, f"p{i}.wav")
-            subprocess.run(["ffmpeg", "-y", "-loglevel", "error", "-i", w, "-af", f"adelay=150,apad",
-                            "-t", f"{durs[i]:.3f}", p], check=True)
-            fh.write(f"file '{p}'\n")
-    audio = os.path.join(tmp, "voice.wav")
-    subprocess.run(["ffmpeg", "-y", "-loglevel", "error", "-f", "concat", "-safe", "0", "-i", concat, audio], check=True)
+
+    # --- static layers
+    base = background()
+    bd = ImageDraw.Draw(base)
+    kf = font(F_BOLD, 54)
+    kick = cfg.get("kicker", "ΚΥΠΡΙΑΚΟ ΠΟΔΟΣΦΑΙΡΟ")
+    # letter-spaced kicker
+    sp = 10
+    total = sum(bd.textlength(c, font=kf) for c in kick) + sp * (len(kick) - 1)
+    x = (W - total) / 2
+    for c in kick:
+        bd.text((x, 80), c, font=kf, fill=WHITE); x += bd.textlength(c, font=kf) + sp
+    title = title_layer(rnd)
+    logo_path = os.path.join(HERE, cfg.get("logo", "assets/logo.png"))
+    logo = Image.open(logo_path).convert("RGBA") if os.path.exists(logo_path) else None
+    if logo: logo = logo.resize((780, int(logo.height * 780 / logo.width)), Image.LANCZOS)
+    base = base.convert("RGBA")
+    if logo: base.alpha_composite(logo, ((W - logo.width) // 2, H - logo.height - 70))
+
+    layers = []
+    for kind, s in segments:
+        if kind == "recap":
+            rows = [story_layer(st, rnd, compact=True) for st in cfg["stories"]]
+            L = Image.new("RGBA", (W, 1200), (0, 0, 0, 0)); y = 0
+            for r in rows: L.alpha_composite(r, (0, y)); y += r.height + 6
+            layers.append([L.crop((0, 0, W, y)), rows])
+        else:
+            layers.append([story_layer(s, rnd), None])
+
     video = os.path.join(tmp, "video.mp4")
-    proc = subprocess.Popen(["ffmpeg", "-y", "-loglevel", "error", "-f", "rawvideo", "-pix_fmt", "rgb24",
-                             "-s", f"{W}x{H}", "-r", str(FPS), "-i", "-", "-c:v", "libx264",
-                             "-preset", "medium", "-crf", "20", "-pix_fmt", "yuv420p", video], stdin=subprocess.PIPE)
-    for i, s in enumerate(slides):
-        render_slide(proc, meta, s, i, len(slides), durs[i])
+    proc = subprocess.Popen(["ffmpeg", "-y", "-loglevel", "error", "-f", "rawvideo", "-pix_fmt", "rgba",
+                             "-s", f"{W}x{H}", "-r", str(FPS), "-i", "-", "-c:v", "libx264", "-preset", "medium",
+                             "-crf", "19", "-pix_fmt", "yuv420p", video], stdin=subprocess.PIPE)
+    for si, ((kind, s), (wav, words, dur, lead), (layer, rows)) in enumerate(zip(segments, audio, layers)):
+        caps = chunks(words, s["voice"])
+        n = int(round(dur * FPS))
+        for f in range(n):
+            t = f / FPS
+            img = base.copy()
+            # title: pops in on the very first segment
+            if si == 0:
+                sc = 0.6 + 0.4 * ease(t / 0.45)
+                tl = title.resize((int(title.width * sc), int(title.height * sc)), Image.BILINEAR)
+                img.alpha_composite(tl, ((W - tl.width) // 2, 175 + (title.height - tl.height) // 2))
+            else:
+                img.alpha_composite(title, ((W - title.width) // 2, 175))
+            area_top = 560
+            if rows is None:
+                p = ease(t / 0.4)
+                img.alpha_composite(layer, (int(-W * (1 - p)), area_top + 90))
+            else:
+                y = 545
+                for k, r in enumerate(rows):
+                    p = ease((t - k * 0.18) / 0.35)
+                    if p > 0: img.alpha_composite(r, (int(-W * (1 - p)), y))
+                    y += r.height + 6
+            if rows is None:
+                cur = next((c for c in caps if c[0][0] - 0.05 <= t <= c[-1][1] + 0.25), None)
+                draw_caption(img, cur, t)
+            proc.stdin.write(img.tobytes())
     proc.stdin.close(); proc.wait()
-    subprocess.run(["ffmpeg", "-y", "-loglevel", "error", "-i", video, "-i", audio, "-c:v", "copy",
-                    "-c:a", "aac", "-b:a", "160k", "-shortest", "-movflags", "+faststart", out], check=True)
+
+    # --- audio track
+    lst = os.path.join(tmp, "list.txt")
+    with open(lst, "w") as fh:
+        for i, (wav, _, dur, lead) in enumerate(audio):
+            p = os.path.join(tmp, f"p{i}.wav")
+            subprocess.run(["ffmpeg", "-y", "-loglevel", "error", "-i", wav, "-af",
+                            f"adelay={int(lead * 1000)},apad", "-t", f"{dur:.3f}", "-ar", "44100", p], check=True)
+            fh.write(f"file '{p}'\n")
+    voice = os.path.join(tmp, "voice.wav")
+    subprocess.run(["ffmpeg", "-y", "-loglevel", "error", "-f", "concat", "-safe", "0", "-i", lst, voice], check=True)
+    subprocess.run(["ffmpeg", "-y", "-loglevel", "error", "-i", video, "-i", voice, "-c:v", "copy",
+                    "-c:a", "aac", "-b:a", "192k", "-shortest", "-movflags", "+faststart", out], check=True)
     shutil.rmtree(tmp)
-    print(f"done: {out} ({sum(durs):.1f}s)")
+    print(f"done: {out} ({sum(a[2] for a in audio):.1f}s)")
 
 if __name__ == "__main__":
     main()

@@ -1,14 +1,20 @@
-# News Reel – Κυπριακό Ποδόσφαιρο
+# ΠΑΣΑ στα ΝΕΑ – News Reel
 
-Φτιάχνει κάθετο reel (1080x1920, 9:16) με ελληνικό voiceover από το `script.json`.
+Κάθετο reel (1080x1920, 9:16) για τα νέα του κυπριακού ποδοσφαίρου, με ελληνικό voiceover
+και υπότιτλους συγχρονισμένους λέξη-λέξη.
 
 ```bash
-pip install pillow edge-tts          # + ffmpeg
-apt-get install espeak-ng mbrola mbrola-gr2   # offline εναλλακτική φωνή
+pip install pillow edge-tts     # + ffmpeg
 python3 build.py script.json reel.mp4
 ```
 
-- Φωνή: δοκιμάζει πρώτα Microsoft Neural `el-GR-NestorasNeural` (χρειάζεται πρόσβαση στο `speech.platform.bing.com`).
-  Αν δεν είναι διαθέσιμη, χρησιμοποιεί offline `espeak-ng` + MBROLA `mb-gr2` (ανδρική).
-- Για νέα αγωνιστική: άλλαξε τα `slides` στο `script.json` (τύποι: `intro`, `match`, `table`, `outro`).
-  Το `voice` είναι το κείμενο που εκφωνείται και εμφανίζεται ως υπότιτλος.
+- **Φωνή:** Microsoft Neural `el-GR-NestorasNeural` (ανδρική) μέσω edge-tts — χρειάζεται πρόσβαση στο
+  `speech.platform.bing.com`. Αν δεν υπάρχει, πέφτει σε offline espeak-ng/MBROLA (robotic).
+  Αλλάζεις φωνή/ταχύτητα με `voice` / `rate` στο `script.json`.
+- **Νέα επεισόδια:** άλλαξε τα `stories` στο `script.json`:
+  - `tag` – π.χ. `05 / ΕΥΡΩΠΗ`
+  - `headline` – 2 γραμμές, ό,τι είναι σε `[αγκύλες]` βγαίνει κίτρινο
+  - `body` – το κείμενο στο χαρτί
+  - `voice` – τι εκφωνείται (γράψε αριθμούς/ώρες ολογράφως για σωστή προφορά)
+- Στο τέλος εμφανίζεται recap με όλα τα θέματα (σαν το poster).
+- `assets/logo.png` – λογότυπο footer, `assets/fonts/` – Fira Sans Extra Condensed (SIL OFL).
