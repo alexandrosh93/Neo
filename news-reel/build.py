@@ -197,9 +197,9 @@ def title_layer(rnd, maxw=1010):
         L = L.resize((maxw, int(L.height * maxw / L.width)), Image.LANCZOS)
     return L
 
-def story_layer(s, rnd, compact=False, body=True):
+def story_layer(s, rnd, compact=False, body=True, size=128):
     """Tag + dark headline panel (+ torn paper body). Returns RGBA, anchor = top-left."""
-    hf = font(F_BLACK_I, 76 if compact else 128)
+    hf = font(F_BLACK_I, 76 if compact else size)
     tf = font(F_XB_I, 30 if compact else 46)
     pw = (600 if body else 900) if compact else 960
     lh = int(hf.size * 0.98)
@@ -242,6 +242,17 @@ def story_layer(s, rnd, compact=False, body=True):
         else:
             L.alpha_composite(p, (60, bottom + 20)); bottom += 20 + p.height
     return L.crop((0, 0, W, int(bottom) + 10))
+
+def photo_frame(path, rnd, size=(940, 430)):
+    """Torn white paper frame + cover-cropped photo (a bit larger, for the slow zoom)."""
+    im = Image.open(path).convert("RGB")
+    tw, th = size
+    k = max(tw / im.width, th / im.height) * 1.1
+    im = im.resize((int(im.width * k), int(im.height * k)), Image.LANCZOS)
+    l, t = (im.width - int(tw * 1.1)) // 2, (im.height - int(th * 1.1)) // 2
+    im = im.crop((l, t, l + int(tw * 1.1), t + int(th * 1.1))).convert("RGBA")
+    frame = paper((tw + 36, th + 36), rnd)
+    return {"photo": im, "frame": frame, "size": size, "inset": (38, 38)}
 
 def draw_caption(img, chunk, t):
     if not chunk: return
@@ -322,7 +333,11 @@ def main():
         elif kind == "intro" and intro_video:
             layers.append([None, None])
         else:
-            layers.append([story_layer(s, rnd), None])
+            img_path = os.path.join(HERE, s["image"]) if s.get("image") else None
+            if img_path and os.path.exists(img_path):
+                layers.append([story_layer(s, rnd, body=False, size=112), photo_frame(img_path, rnd)])
+            else:
+                layers.append([story_layer(s, rnd), None])
 
     video = os.path.join(tmp, "video.mp4")
     proc = subprocess.Popen(["ffmpeg", "-y", "-loglevel", "error", "-f", "rawvideo", "-pix_fmt", "rgba",
@@ -360,13 +375,26 @@ def main():
             if rows is None:
                 p = ease(t / 0.4)
                 img.alpha_composite(layer, (int(-W * (1 - p)), area_top + 20))
+            elif isinstance(rows, dict):  # story with photo: framed photo + headline panel
+                fr = rows
+                pp = ease((t - 0.08) / 0.4)
+                z = 1.0 + 0.08 * (t / max(dur, 0.1))
+                src = fr["photo"]
+                cw, ch = int(src.width / z), int(src.height / z)
+                cx, cy = (src.width - cw) // 2, (src.height - ch) // 2
+                ph_img = src.crop((cx, cy, cx + cw, cy + ch)).resize(fr["size"], Image.BILINEAR)
+                frame = fr["frame"].copy()
+                frame.paste(ph_img, fr["inset"])
+                img.alpha_composite(frame, ((W - frame.width) // 2 + int(W * (1 - pp)), 520))
+                p = ease((t - 0.18) / 0.4)
+                img.alpha_composite(layer, (int(-W * (1 - p)), 520 + frame.height - 70))
             else:
                 y = 545
                 for k, r in enumerate(rows):
                     p = ease((t - k * 0.18) / 0.35)
                     if p > 0: img.alpha_composite(r, ((W - r.width) // 2 + int(-W * (1 - p)), y))
                     y += r.height + 6
-            if rows is None:
+            if not isinstance(rows, list):
                 cur = next((c for c in caps if c[0][0] - 0.05 <= t <= c[-1][1] + 0.25), None)
                 draw_caption(img, cur, t)
             proc.stdin.write(img.tobytes())
