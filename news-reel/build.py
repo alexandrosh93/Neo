@@ -197,11 +197,11 @@ def title_layer(rnd, maxw=1010):
         L = L.resize((maxw, int(L.height * maxw / L.width)), Image.LANCZOS)
     return L
 
-def story_layer(s, rnd, compact=False):
+def story_layer(s, rnd, compact=False, body=True):
     """Tag + dark headline panel (+ torn paper body). Returns RGBA, anchor = top-left."""
     hf = font(F_BLACK_I, 76 if compact else 128)
     tf = font(F_XB_I, 30 if compact else 46)
-    pw = 600 if compact else 960
+    pw = (600 if body else 900) if compact else 960
     lh = int(hf.size * 0.98)
     ph = lh * len(s["headline"]) + (60 if compact else 90)
     tag_h = 48 if compact else 72
@@ -225,7 +225,7 @@ def story_layer(s, rnd, compact=False):
         longest = max(longest, rich_len(d, ln, hf)); y += lh
     d.rectangle([x0, y + 6, x0 + min(longest + 20, pw - 80), y + (12 if compact else 18)], fill=GREEN)
     bottom = top + ph
-    if s.get("body"):
+    if body and s.get("body"):
         bf = font(F_SEMI, 34 if compact else 56)
         bw = 390 if compact else 840
         lines = wrap(s["body"], bf, bw)
@@ -310,7 +310,7 @@ def main():
     layers = []
     for kind, s in segments:
         if kind == "recap":
-            rows = [story_layer(st, rnd, compact=True) for st in cfg["stories"]]
+            rows = [story_layer(st, rnd, compact=True, body=len(cfg["stories"]) <= 4) for st in cfg["stories"]]
             avail = 1500 - 545 - 6 * len(rows)
             tot = sum(r.height for r in rows)
             if tot > avail:  # keep the recap clear of the logo
