@@ -16,5 +16,6 @@ python3 build.py script.json reel.mp4
   - `headline` – 2 γραμμές, ό,τι είναι σε `[αγκύλες]` βγαίνει κίτρινο
   - `body` – το κείμενο στο χαρτί
   - `voice` – τι εκφωνείται (γράψε αριθμούς/ώρες ολογράφως για σωστή προφορά)
+- **Intro:** `intro.video` (assets/intro.mp4) παίζει πρώτο· η φωνή ξεκινά στο `voice_at` (δευτ.) και η μουσική χαμηλώνει στο `music_volume`.
 - Στο τέλος εμφανίζεται recap με όλα τα θέματα (σαν το poster).
 - `assets/logo.png` – λογότυπο footer, `assets/fonts/` – Fira Sans Extra Condensed (SIL OFL).

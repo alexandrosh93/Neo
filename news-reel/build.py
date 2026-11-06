@@ -254,7 +254,7 @@ def draw_caption(img, chunk, t):
         if cur and d.textlength(test, font=f) > W - 140: lines.append(cur); cur = [i]
         else: cur.append(i)
     lines.append(cur)
-    y = 1555 - (len(lines) - 1) * 44
+    y = 1395 - (len(lines) - 1) * 44
     for ln in lines:
         text = " ".join(words[i] for i in ln)
         x = (W - d.textlength(text, font=f)) / 2
@@ -272,13 +272,20 @@ def main():
     rnd = random.Random(7)
     tmp = tempfile.mkdtemp()
 
-    segments = [("intro", cfg["intro"])] + [("story", s) for s in cfg["stories"]] + [("recap", cfg["outro"])]
+    intro = cfg["intro"]
+    intro_video = os.path.join(HERE, intro["video"]) if intro.get("video") else None
+    segments = [("intro", intro)] + [("story", s) for s in cfg["stories"]] + [("recap", cfg["outro"])]
     audio = []
-    for i, (_, s) in enumerate(segments):
+    for i, (kind, s) in enumerate(segments):
         wav = os.path.join(tmp, f"v{i}.wav")
         words, engine = tts(s["voice"], cfg, wav, tmp)
-        lead = 0.25
-        dur = duration(wav) + lead + (1.2 if i == len(segments) - 1 else 0.35)
+        if kind == "intro" and intro_video:
+            lead = float(intro.get("voice_at", 1.5))
+            dur = max(float(intro.get("min_length", 3.5)), duration(wav) + lead + 0.3)
+            dur = min(dur, duration(intro_video))
+        else:
+            lead = 0.2
+            dur = duration(wav) + lead + (1.2 if i == len(segments) - 1 else 0.25)
         audio.append((wav, [(a + lead, b + lead, w) for a, b, w in words], dur, lead))
     print("voice engine:", engine)
 
@@ -296,17 +303,24 @@ def main():
     title = title_layer(rnd)
     logo_path = os.path.join(HERE, cfg.get("logo", "assets/logo.png"))
     logo = Image.open(logo_path).convert("RGBA") if os.path.exists(logo_path) else None
-    if logo: logo = logo.resize((780, int(logo.height * 780 / logo.width)), Image.LANCZOS)
+    if logo: logo = logo.resize((700, int(logo.height * 780 / logo.width)), Image.LANCZOS)
     base = base.convert("RGBA")
-    if logo: base.alpha_composite(logo, ((W - logo.width) // 2, H - logo.height - 70))
+    if logo: base.alpha_composite(logo, ((W - logo.width) // 2, H - logo.height - 250))
 
     layers = []
     for kind, s in segments:
         if kind == "recap":
             rows = [story_layer(st, rnd, compact=True) for st in cfg["stories"]]
+            avail = 1500 - 545 - 6 * len(rows)
+            tot = sum(r.height for r in rows)
+            if tot > avail:  # keep the recap clear of the logo
+                k = avail / tot
+                rows = [r.resize((int(W * k), int(r.height * k)), Image.LANCZOS) for r in rows]
             L = Image.new("RGBA", (W, 1200), (0, 0, 0, 0)); y = 0
             for r in rows: L.alpha_composite(r, (0, y)); y += r.height + 6
             layers.append([L.crop((0, 0, W, y)), rows])
+        elif kind == "intro" and intro_video:
+            layers.append([None, None])
         else:
             layers.append([story_layer(s, rnd), None])
 
@@ -317,11 +331,26 @@ def main():
     for si, ((kind, s), (wav, words, dur, lead), (layer, rows)) in enumerate(zip(segments, audio, layers)):
         caps = chunks(words, s["voice"])
         n = int(round(dur * FPS))
+        if kind == "intro" and intro_video:
+            dec = subprocess.Popen(["ffmpeg", "-loglevel", "error", "-i", intro_video, "-t", f"{dur:.3f}",
+                                    "-vf", f"scale={W}:{H},fps={FPS}", "-f", "rawvideo", "-pix_fmt", "rgba", "-"],
+                                   stdout=subprocess.PIPE)
+            last = None
+            for f in range(n):
+                buf = dec.stdout.read(W * H * 4)
+                if len(buf) == W * H * 4: last = Image.frombytes("RGBA", (W, H), buf)
+                img = last.copy()
+                t = f / FPS
+                cur = next((c for c in caps if c[0][0] - 0.05 <= t <= c[-1][1] + 0.25), None)
+                draw_caption(img, cur, t)
+                proc.stdin.write(img.tobytes())
+            dec.stdout.close(); dec.wait()
+            continue
         for f in range(n):
             t = f / FPS
             img = base.copy()
             # title: pops in on the very first segment
-            if si == 0:
+            if si == (1 if intro_video else 0):
                 sc = 0.6 + 0.4 * ease(t / 0.45)
                 tl = title.resize((int(title.width * sc), int(title.height * sc)), Image.BILINEAR)
                 img.alpha_composite(tl, ((W - tl.width) // 2, 175 + (title.height - tl.height) // 2))
@@ -330,12 +359,12 @@ def main():
             area_top = 560
             if rows is None:
                 p = ease(t / 0.4)
-                img.alpha_composite(layer, (int(-W * (1 - p)), area_top + 90))
+                img.alpha_composite(layer, (int(-W * (1 - p)), area_top + 20))
             else:
                 y = 545
                 for k, r in enumerate(rows):
                     p = ease((t - k * 0.18) / 0.35)
-                    if p > 0: img.alpha_composite(r, (int(-W * (1 - p)), y))
+                    if p > 0: img.alpha_composite(r, ((W - r.width) // 2 + int(-W * (1 - p)), y))
                     y += r.height + 6
             if rows is None:
                 cur = next((c for c in caps if c[0][0] - 0.05 <= t <= c[-1][1] + 0.25), None)
@@ -348,8 +377,16 @@ def main():
     with open(lst, "w") as fh:
         for i, (wav, _, dur, lead) in enumerate(audio):
             p = os.path.join(tmp, f"p{i}.wav")
-            subprocess.run(["ffmpeg", "-y", "-loglevel", "error", "-i", wav, "-af",
-                            f"adelay={int(lead * 1000)},apad", "-t", f"{dur:.3f}", "-ar", "44100", p], check=True)
+            if i == 0 and intro_video:
+                vol = float(intro.get("music_volume", 0.35))
+                subprocess.run(["ffmpeg", "-y", "-loglevel", "error", "-i", intro_video, "-i", wav, "-filter_complex",
+                                f"[0:a]atrim=0:{dur:.3f},aformat=channel_layouts=mono,volume='if(gte(t,{lead - 0.2:.2f}),{vol},1)':eval=frame,"
+                                f"afade=t=out:st={max(0, dur - 0.5):.3f}:d=0.5[m];"
+                                f"[1:a]adelay={int(lead * 1000)},apad[v];[m][v]amix=inputs=2:duration=first:normalize=0",
+                                "-t", f"{dur:.3f}", "-ar", "44100", "-ac", "1", p], check=True)
+            else:
+                subprocess.run(["ffmpeg", "-y", "-loglevel", "error", "-i", wav, "-af",
+                                f"adelay={int(lead * 1000)},apad", "-t", f"{dur:.3f}", "-ar", "44100", "-ac", "1", p], check=True)
             fh.write(f"file '{p}'\n")
     voice = os.path.join(tmp, "voice.wav")
     subprocess.run(["ffmpeg", "-y", "-loglevel", "error", "-f", "concat", "-safe", "0", "-i", lst, voice], check=True)
