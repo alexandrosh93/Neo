@@ -64,6 +64,69 @@ def tts(text, cfg, wav, tmp):
     per = d / max(1, len(toks))
     return [(i * per, (i + 1) * per, w) for i, w in enumerate(toks)], "espeak-ng (offline)"
 
+Q_MARKS = (";", "?", "\u037e")
+
+def question_words(words, text):
+    """Indexes of words that end a question (followed by ; ? or the Greek question mark)."""
+    out, pos = [], 0
+    for k, (_, _, w) in enumerate(words):
+        i = text.find(w, pos)
+        if i < 0: continue
+        pos = i + len(w)
+        m = re.match(r"[^\w\s]*", text[pos:])
+        if m and any(q in m.group(0) for q in Q_MARKS): out.append(k)
+    return out
+
+def question_intonation(wav, words, text, rise=1.35, pause=0.28):
+    """Give questions a rising end (WORLD vocoder) and a short pause after them.
+    Returns the word timings shifted for the inserted pauses."""
+    qs = question_words(words, text)
+    if not qs: return words
+    try:
+        import numpy as np, pyworld as pw, wave as wv
+    except ImportError:
+        print("pyworld not installed: questions keep the default intonation"); return words
+    with wv.open(wav) as f:
+        fs = f.getframerate(); x = np.frombuffer(f.readframes(f.getnframes()), dtype=np.int16).astype(np.float64) / 32768
+    f0, t = pw.harvest(x, fs, f0_floor=60, f0_ceil=320, frame_period=5.0)
+    sp = pw.cheaptrick(x, f0, t, fs); ap = pw.d4c(x, f0, t, fs)
+    f0n = f0.copy(); first_a = None
+    for k in qs:
+        a, b = words[k][0], words[k][1]
+        voiced = f0 > 0
+        # robust speaking pitch of the sentence before the question word (ignore octave errors)
+        ref = f0[voiced & (t < a) & (t > max(0, a - 2.5))]
+        ref = ref[(ref > 70) & (ref < 180)]
+        body = float(np.median(ref)) if len(ref) else 110.0
+        idx = np.where(voiced & (t >= a) & (t <= b + 0.12))[0]
+        if len(idx) < 3: continue
+        # impose the contour: level on the stressed start, then a clear glide up to +35%
+        for j, i in enumerate(idx):
+            p = j / (len(idx) - 1)
+            r = 0.0 if p < 0.2 else ((p - 0.2) / 0.8) ** 1.2
+            f0n[i] = body * (1.0 + (rise - 1.0) * r)
+        first_a = a if first_a is None else min(first_a, a)
+    if first_a is None: return words
+    y = pw.synthesize(f0n, sp, ap, fs, 5.0)[:len(x)]
+    if len(y) < len(x): y = np.pad(y, (0, len(x) - len(y)))
+    s0 = int(max(0, first_a - 0.04) * fs); cf = int(0.03 * fs)
+    out = x.copy(); w = np.linspace(0, 1, cf)
+    out[s0:s0 + cf] = x[s0:s0 + cf] * (1 - w) + y[s0:s0 + cf] * w
+    out[s0 + cf:] = y[s0 + cf:]
+    # short pause after each question that is not the end of the clip
+    shift, pieces, last, words2 = 0.0, [], 0, []
+    cut = {k: int((words[k][1] + 0.06) * fs) for k in qs if k < len(words) - 1}
+    for k, (a, b, wd) in enumerate(words):
+        words2.append((a + shift, b + shift, wd))
+        if k in cut:
+            pieces += [out[last:cut[k]], np.zeros(int(pause * fs))]; last = cut[k]; shift += pause
+    pieces.append(out[last:])
+    out = np.clip(np.concatenate(pieces), -1, 1)
+    with wv.open(wav, "wb") as f:
+        f.setnchannels(1); f.setsampwidth(2); f.setframerate(fs)
+        f.writeframes((out * 32767).astype(np.int16).tobytes())
+    return words2
+
 def duration(p):
     return float(subprocess.check_output(["ffprobe", "-v", "error", "-show_entries", "format=duration",
                                           "-of", "csv=p=0", p]).strip())
@@ -278,7 +341,7 @@ def story_layer(s, rnd, compact=False, body=True, size=128):
             L.alpha_composite(p, (60, bottom + 20)); bottom += 20 + p.height
     return L.crop((0, 0, W, int(bottom) + 10))
 
-def photo_frame(path, rnd, size=(940, 430)):
+def photo_frame(path, rnd, size=(1010, 620)):
     """Torn white paper frame + cover-cropped photo (a bit larger, for the slow zoom)."""
     im = Image.open(path).convert("RGB")
     tw, th = size
@@ -357,7 +420,9 @@ def main():
     audio = []
     for i, (kind, s) in enumerate(segments):
         wav = os.path.join(tmp, f"v{i}.wav")
-        words, engine = tts(to_spoken(s["voice"], pron), cfg, wav, tmp)
+        spoken = to_spoken(s["voice"], pron)
+        words, engine = tts(spoken, cfg, wav, tmp)
+        words = question_intonation(wav, words, spoken)
         words = restore_words(words, pron)
         if kind == "intro" and intro_video:
             lead = float(intro.get("voice_at", 1.5))
@@ -384,6 +449,12 @@ def main():
     for c in kick:
         bd.text((x, 80), c, font=kf, fill=WHITE); x += bd.textlength(c, font=kf) + sp
     title = title_layer(rnd)
+    # story slides: slightly smaller logotype so the photos can be bigger
+    TS = float(cfg.get("title_scale", 0.8))
+    title = title.resize((int(title.width * TS), int(title.height * TS)), Image.LANCZOS)
+    TITLE_Y = 150
+    TOP = TITLE_Y + title.height + 12          # where the story area starts
+
     logo_path = os.path.join(HERE, cfg.get("logo", "assets/logo.png"))
     logo = Image.open(logo_path).convert("RGBA") if os.path.exists(logo_path) else None
     if logo: logo = logo.resize((700, int(logo.height * 780 / logo.width)), Image.LANCZOS)
@@ -394,7 +465,7 @@ def main():
     for kind, s in segments:
         if kind == "recap":
             rows = [story_layer(st, rnd, compact=True, body=len(cfg["stories"]) <= 4) for st in cfg["stories"]]
-            avail = 1500 - 545 - 6 * len(rows)
+            avail = 1500 - TOP - 6 * len(rows)
             tot = sum(r.height for r in rows)
             if tot > avail:  # keep the recap clear of the logo
                 k = avail / tot
@@ -410,7 +481,7 @@ def main():
         else:
             img_path = os.path.join(HERE, s["image"]) if s.get("image") else None
             if img_path and os.path.exists(img_path):
-                layers.append([story_layer(s, rnd, body=False, size=112), photo_frame(img_path, rnd)])
+                layers.append([story_layer(s, rnd, body=False, size=100), photo_frame(img_path, rnd)])
             else:
                 layers.append([story_layer(s, rnd), None])
 
@@ -458,10 +529,10 @@ def main():
             if si == next(i for i, sg in enumerate(segments) if sg[0] == "story"):
                 sc = 0.6 + 0.4 * ease(t / 0.45)
                 tl = title.resize((int(title.width * sc), int(title.height * sc)), Image.BILINEAR)
-                img.alpha_composite(tl, ((W - tl.width) // 2, 175 + (title.height - tl.height) // 2))
+                img.alpha_composite(tl, ((W - tl.width) // 2, TITLE_Y + (title.height - tl.height) // 2))
             else:
-                img.alpha_composite(title, ((W - title.width) // 2, 175))
-            area_top = 560
+                img.alpha_composite(title, ((W - title.width) // 2, TITLE_Y))
+            area_top = TOP - 20
             if rows is None:
                 p = ease(t / 0.4)
                 img.alpha_composite(layer, (int(-W * (1 - p)), area_top + 20))
@@ -475,11 +546,11 @@ def main():
                 ph_img = src.crop((cx, cy, cx + cw, cy + ch)).resize(fr["size"], Image.BILINEAR)
                 frame = fr["frame"].copy()
                 frame.paste(ph_img, fr["inset"])
-                img.alpha_composite(frame, ((W - frame.width) // 2 + int(W * (1 - pp)), 520))
+                img.alpha_composite(frame, ((W - frame.width) // 2 + int(W * (1 - pp)), TOP - 20))
                 p = ease((t - 0.18) / 0.4)
-                img.alpha_composite(layer, (int(-W * (1 - p)), 520 + frame.height - 70))
+                img.alpha_composite(layer, (int(-W * (1 - p)), TOP - 20 + frame.height - 110))
             else:
-                y = 545
+                y = TOP
                 for k, r in enumerate(rows):
                     p = ease((t - k * 0.18) / 0.35)
                     if p > 0: img.alpha_composite(r, ((W - r.width) // 2 + int(-W * (1 - p)), y))
