@@ -68,6 +68,37 @@ def duration(p):
     return float(subprocess.check_output(["ffprobe", "-v", "error", "-show_entries", "format=duration",
                                           "-of", "csv=p=0", p]).strip())
 
+def load_pronunciations(cfg):
+    """pronunciations.json (+ optional "pronunciations" in script.json): written form -> spoken form."""
+    p = {}
+    f = os.path.join(HERE, "pronunciations.json")
+    if os.path.exists(f):
+        p.update({k: v for k, v in json.load(open(f, encoding="utf-8")).items() if not k.startswith("_")})
+    p.update(cfg.get("pronunciations", {}))
+    return p
+
+def _pat(k):
+    return re.compile(r"(?<!\w)" + re.escape(k) + r"(?!\w)")
+
+def to_spoken(text, pron):
+    for k, v in sorted(pron.items(), key=lambda kv: -len(kv[0])):
+        text = _pat(k).sub(v, text)
+    return text
+
+def restore_words(words, pron):
+    """Merge the spoken tokens of a replacement back into its written form, for the captions."""
+    norm = lambda w: re.sub(r"[^\w]", "", w).lower()
+    reps = [(k, [norm(t) for t in v.split()]) for k, v in pron.items()]
+    out, i = [], 0
+    while i < len(words):
+        for k, toks in reps:
+            seg = words[i:i + len(toks)]
+            if len(seg) == len(toks) and [norm(w[2]) for w in seg] == toks:
+                out.append((seg[0][0], seg[-1][1], k)); i += len(toks); break
+        else:
+            out.append(words[i]); i += 1
+    return out
+
 def chunks(words, text, maxw=4):
     """Group word timings into caption chunks, breaking at punctuation in the source text."""
     out, cur, pos = [], [], 0
@@ -316,6 +347,7 @@ def main():
     rnd = random.Random(7)
     tmp = tempfile.mkdtemp()
 
+    pron = load_pronunciations(cfg)
     intro = cfg["intro"]
     intro_video = os.path.join(HERE, intro["video"]) if intro.get("video") else None
     hook = cfg.get("hook")
@@ -325,7 +357,8 @@ def main():
     audio = []
     for i, (kind, s) in enumerate(segments):
         wav = os.path.join(tmp, f"v{i}.wav")
-        words, engine = tts(s["voice"], cfg, wav, tmp)
+        words, engine = tts(to_spoken(s["voice"], pron), cfg, wav, tmp)
+        words = restore_words(words, pron)
         if kind == "intro" and intro_video:
             lead = float(intro.get("voice_at", 1.5))
             dur = max(float(intro.get("min_length", 3.5)), duration(wav) + lead + 0.3)

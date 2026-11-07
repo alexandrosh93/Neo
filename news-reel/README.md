@@ -22,3 +22,12 @@ python3 build.py script.json reel.mp4
 - **Intro (συνέχεια):** `intro.video` (assets/intro.mp4) παίζει πρώτο· η φωνή ξεκινά στο `voice_at` (δευτ.) και η μουσική χαμηλώνει στο `music_volume`.
 - Στο τέλος εμφανίζεται recap με όλα τα θέματα (σαν το poster).
 - `assets/logo.png` – λογότυπο footer, `assets/fonts/` – Fira Sans Extra Condensed (SIL OFL).
+
+## Προφορά (pronunciations.json)
+
+Λεξικό για το πώς λέει η φωνή συντομογραφίες/ονόματα. Αριστερά όπως γράφεται (έτσι φαίνεται και στους
+υπότιτλους), δεξιά όπως εκφωνείται. Εφαρμόζεται αυτόματα σε κάθε reel.
+
+```json
+{ "ΓΣΠ": "Γκα Σι Πι" }
+```
