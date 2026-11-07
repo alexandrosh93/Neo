@@ -202,6 +202,10 @@ def story_layer(s, rnd, compact=False, body=True, size=128):
     hf = font(F_BLACK_I, 76 if compact else size)
     tf = font(F_XB_I, 30 if compact else 46)
     pw = (600 if body else 900) if compact else 960
+    # shrink the headline until the longest line fits inside the panel
+    _m = ImageDraw.Draw(Image.new("L", (1, 1)))
+    while hf.size > 40 and max(rich_len(_m, ln, hf) for ln in s["headline"]) > pw - (100 if compact else 130):
+        hf = font(F_BLACK_I, hf.size - 4)
     lh = int(hf.size * 0.98)
     ph = lh * len(s["headline"]) + (60 if compact else 90)
     tag_h = 48 if compact else 72
@@ -254,6 +258,35 @@ def photo_frame(path, rnd, size=(940, 430)):
     frame = paper((tw + 36, th + 36), rnd)
     return {"photo": im, "frame": frame, "size": size, "inset": (38, 38)}
 
+def hook_background(path):
+    """Full-bleed photo (cover crop, oversized for zoom) for the opening hook."""
+    if not path or not os.path.exists(path):
+        return None
+    im = Image.open(path).convert("RGB")
+    k = max(W / im.width, H / im.height) * 1.15
+    im = im.resize((int(im.width * k), int(im.height * k)), Image.LANCZOS)
+    return im
+
+_grad = None
+def hook_frame(bg, t, dur):
+    global _grad
+    if _grad is None:
+        _grad = Image.new("RGBA", (W, H))
+        gd = ImageDraw.Draw(_grad)
+        for y in range(H):
+            a = int(85 + 150 * abs(y / H - 0.42) * 2)
+            gd.line([(0, y), (W, y)], fill=(4, 14, 18, min(235, a)))
+    if bg is None:
+        img = Image.new("RGBA", (W, H), BG2 + (255,))
+    else:
+        z = 1.0 + 0.10 * (t / max(dur, 0.1))  # fast push-in
+        k0 = min(bg.width / W, bg.height / H)
+        cw, ch = int(W * k0 / z), int(H * k0 / z)
+        cx, cy = (bg.width - cw) // 2, (bg.height - ch) // 2
+        img = bg.crop((cx, cy, cx + cw, cy + ch)).resize((W, H), Image.BILINEAR).convert("RGBA")
+    img.alpha_composite(_grad)
+    return img
+
 def draw_caption(img, chunk, t):
     if not chunk: return
     d = ImageDraw.Draw(img)
@@ -285,7 +318,10 @@ def main():
 
     intro = cfg["intro"]
     intro_video = os.path.join(HERE, intro["video"]) if intro.get("video") else None
-    segments = [("intro", intro)] + [("story", s) for s in cfg["stories"]] + [("recap", cfg["outro"])]
+    hook = cfg.get("hook")
+    intro_start = float(intro.get("start", 0))
+    segments = ([("hook", hook)] if hook else []) + [("intro", intro)] + \
+               [("story", s) for s in cfg["stories"]] + [("recap", cfg["outro"])]
     audio = []
     for i, (kind, s) in enumerate(segments):
         wav = os.path.join(tmp, f"v{i}.wav")
@@ -293,7 +329,10 @@ def main():
         if kind == "intro" and intro_video:
             lead = float(intro.get("voice_at", 1.5))
             dur = max(float(intro.get("min_length", 3.5)), duration(wav) + lead + 0.3)
-            dur = min(dur, duration(intro_video))
+            dur = min(dur, duration(intro_video) - intro_start)
+        elif kind == "hook":
+            lead = 0.05
+            dur = duration(wav) + lead + float(s.get("hold", 0.15))
         else:
             lead = 0.2
             dur = duration(wav) + lead + (1.2 if i == len(segments) - 1 else 0.25)
@@ -332,6 +371,9 @@ def main():
             layers.append([L.crop((0, 0, W, y)), rows])
         elif kind == "intro" and intro_video:
             layers.append([None, None])
+        elif kind == "hook":
+            layers.append([story_layer(s, rnd, body=False, size=int(s.get("size", 150))),
+                           hook_background(os.path.join(HERE, s["image"]) if s.get("image") else None)])
         else:
             img_path = os.path.join(HERE, s["image"]) if s.get("image") else None
             if img_path and os.path.exists(img_path):
@@ -346,8 +388,23 @@ def main():
     for si, ((kind, s), (wav, words, dur, lead), (layer, rows)) in enumerate(zip(segments, audio, layers)):
         caps = chunks(words, s["voice"])
         n = int(round(dur * FPS))
+        if kind == "hook":
+            bgimg = rows
+            for f in range(n):
+                t = f / FPS
+                img = hook_frame(bgimg, t, dur)
+                if logo: img.alpha_composite(logo, ((W - logo.width) // 2, H - logo.height - 250))
+                # punch-in: starts big (already readable on frame 0), settles fast
+                sc = 1.0 + 0.07 * (1 - ease(t / 0.25))
+                shake = int(10 * math.sin(t * 60) * max(0, 1 - t / 0.35))
+                L = layer if sc == 1.0 else layer.resize((int(layer.width * sc), int(layer.height * sc)), Image.BILINEAR)
+                img.alpha_composite(L, ((W - L.width) // 2 + 45 + shake, 760 - (L.height - layer.height) // 2))
+                cur = next((c for c in caps if c[0][0] - 0.05 <= t <= c[-1][1] + 0.25), None)
+                draw_caption(img, cur, t)
+                proc.stdin.write(img.convert("RGBA").tobytes())
+            continue
         if kind == "intro" and intro_video:
-            dec = subprocess.Popen(["ffmpeg", "-loglevel", "error", "-i", intro_video, "-t", f"{dur:.3f}",
+            dec = subprocess.Popen(["ffmpeg", "-loglevel", "error", "-ss", f"{intro_start:.3f}", "-i", intro_video, "-t", f"{dur:.3f}",
                                     "-vf", f"scale={W}:{H},fps={FPS}", "-f", "rawvideo", "-pix_fmt", "rgba", "-"],
                                    stdout=subprocess.PIPE)
             last = None
@@ -365,7 +422,7 @@ def main():
             t = f / FPS
             img = base.copy()
             # title: pops in on the very first segment
-            if si == (1 if intro_video else 0):
+            if si == next(i for i, sg in enumerate(segments) if sg[0] == "story"):
                 sc = 0.6 + 0.4 * ease(t / 0.45)
                 tl = title.resize((int(title.width * sc), int(title.height * sc)), Image.BILINEAR)
                 img.alpha_composite(tl, ((W - tl.width) // 2, 175 + (title.height - tl.height) // 2))
@@ -405,10 +462,16 @@ def main():
     with open(lst, "w") as fh:
         for i, (wav, _, dur, lead) in enumerate(audio):
             p = os.path.join(tmp, f"p{i}.wav")
-            if i == 0 and intro_video:
+            if segments[i][0] == "hook":
+                subprocess.run(["ffmpeg", "-y", "-loglevel", "error", "-i", wav, "-f", "lavfi", "-i",
+                                "aevalsrc='0.55*sin(2*PI*55*t)*exp(-5*t)+0.25*(random(0)*2-1)*exp(-14*t)':d=1.2:s=44100",
+                                "-filter_complex", f"[0:a]adelay={int(lead * 1000)},apad[v];[1:a]volume=0.8[b];"
+                                "[v][b]amix=inputs=2:duration=first:normalize=0",
+                                "-t", f"{dur:.3f}", "-ar", "44100", "-ac", "1", p], check=True)
+            elif segments[i][0] == "intro" and intro_video:
                 vol = float(intro.get("music_volume", 0.35))
                 subprocess.run(["ffmpeg", "-y", "-loglevel", "error", "-i", intro_video, "-i", wav, "-filter_complex",
-                                f"[0:a]atrim=0:{dur:.3f},aformat=channel_layouts=mono,volume='if(gte(t,{lead - 0.2:.2f}),{vol},1)':eval=frame,"
+                                f"[0:a]atrim={intro_start:.3f}:{intro_start + dur:.3f},asetpts=PTS-STARTPTS,aformat=channel_layouts=mono,volume='if(gte(t,{lead - 0.2:.2f}),{vol},1)':eval=frame,"
                                 f"afade=t=out:st={max(0, dur - 0.5):.3f}:d=0.5[m];"
                                 f"[1:a]adelay={int(lead * 1000)},apad[v];[m][v]amix=inputs=2:duration=first:normalize=0",
                                 "-t", f"{dur:.3f}", "-ar", "44100", "-ac", "1", p], check=True)

@@ -17,6 +17,8 @@ python3 build.py script.json reel.mp4
   - `body` – το κείμενο στο χαρτί
   - `image` – (προαιρετικά) φωτογραφία, π.χ. `photos/1.jpg`· μπαίνει σε κάδρο με zoom και τότε το `body` δεν εμφανίζεται
   - `voice` – τι εκφωνείται (γράψε αριθμούς/ώρες ολογράφως για σωστή προφορά)
-- **Intro:** `intro.video` (assets/intro.mp4) παίζει πρώτο· η φωνή ξεκινά στο `voice_at` (δευτ.) και η μουσική χαμηλώνει στο `music_volume`.
+- **Hook:** (προαιρετικό) `hook` στο `script.json` — full-screen φωτογραφία + τεράστιος τίτλος από το 1ο frame, φωνή από 0", πριν το intro. Πεδία: `tag`, `headline`, `image`, `voice`, `size`.
+- **Intro:** `start` κόβει τα πρώτα δευτερόλεπτα του clip.
+- **Intro (συνέχεια):** `intro.video` (assets/intro.mp4) παίζει πρώτο· η φωνή ξεκινά στο `voice_at` (δευτ.) και η μουσική χαμηλώνει στο `music_volume`.
 - Στο τέλος εμφανίζεται recap με όλα τα θέματα (σαν το poster).
 - `assets/logo.png` – λογότυπο footer, `assets/fonts/` – Fira Sans Extra Condensed (SIL OFL).
