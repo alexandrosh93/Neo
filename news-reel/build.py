@@ -232,7 +232,7 @@ def story_layer(s, rnd, compact=False, body=True, size=128):
     if body and s.get("body"):
         bf = font(F_SEMI, 34 if compact else 56)
         bw = 390 if compact else 840
-        lines = wrap(s["body"], bf, bw)
+        lines = [ln for para_ in s["body"].split("\n") for ln in wrap(para_, bf, bw)]
         bl = int(bf.size * 1.22)
         bh = bl * len(lines) + (34 if compact else 70)
         p = paper((bw + (40 if compact else 80), bh), rnd)
