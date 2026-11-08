@@ -17,6 +17,7 @@ import asyncio, json, math, os, random, re, shutil, subprocess, sys, tempfile
 from PIL import Image, ImageDraw, ImageFilter, ImageFont
 
 HERE = os.path.dirname(os.path.abspath(__file__))
+LOGO_BOTTOM = 150          # px between the kouponaki logo and the bottom edge
 W, H, FPS = 1080, 1920, 30
 FD = os.path.join(HERE, "assets", "fonts")
 F_BLACK_I = os.path.join(FD, "FiraSansExtraCondensed-900i.ttf")
@@ -82,7 +83,7 @@ def _estimate_word_times(x, fs, toks, text):
     import numpy as np
     hop = int(0.01 * fs)
     rms = np.array([np.sqrt(np.mean(x[i:i + hop] ** 2)) for i in range(0, len(x) - hop, hop)]) if len(x) > hop else np.zeros(1)
-    thr = max(rms.max() * 0.04, 1e-4)
+    thr = max(rms.max() * 0.025, 1e-4)
     on = np.where(rms > thr)[0]
     if len(on) == 0:
         return [(0.0, len(x) / fs, t) for t in toks]
@@ -118,12 +119,36 @@ def _estimate_word_times(x, fs, toks, text):
             out.append((tcur, tcur + d, t)); tcur += d
     return out
 
+def _cap_pauses(x, fs, cap):
+    """Shorten silences inside a sentence (comma pauses) that run longer than `cap` seconds."""
+    import numpy as np
+    hop = int(0.01 * fs)
+    if len(x) < hop * 10: return x
+    rms = np.array([np.sqrt(np.mean(x[i:i + hop] ** 2)) for i in range(0, len(x) - hop, hop)])
+    thr = rms.max() * 0.025
+    on = np.where(rms > thr)[0]
+    if len(on) < 2: return x
+    keep, run, last = [], None, 0
+    for i in range(on[0], on[-1] + 1):
+        if rms[i] <= thr:
+            run = i if run is None else run
+        else:
+            if run is not None and (i - run) * 0.01 > cap:
+                cut_a = (run + int(cap * 50)) * hop          # keep half the cap at each side
+                cut_b = (i - int(cap * 50)) * hop
+                keep.append(x[last:cut_a]); last = cut_b
+            run = None
+    keep.append(x[last:])
+    return np.concatenate(keep)
+
 def tts_azure(text, cfg, wav, tmp):
     import numpy as np, wave as wv
     region = cfg.get("region", "northeurope")
     voice = cfg.get("voice", "el-GR-NestorasNeural")
     rate = cfg.get("rate", "+0%")
-    gap = {"!": 0.32, ".": 0.30, ";": 0.12, "?": 0.12, "\u037e": 0.12, "…": 0.35}
+    # target silence between sentences (seconds of real silence a listener hears)
+    want = {"!": 0.27, ".": 0.32, "…": 0.40, ";": 0.45, "?": 0.45, "\u037e": 0.45}
+    TAIL, LEAD, QPAUSE = 0.10, 0.03, 0.28      # QPAUSE is added later by question_intonation
     sentences = [m.strip() for m in re.findall(r"[^.!;?\u037e…]+[.!;?\u037e…]*", text) if m.strip()]
     pieces, words, t0, fs = [], [], 0.0, 24000
     for n, snt in enumerate(sentences):
@@ -134,15 +159,17 @@ def tts_azure(text, cfg, wav, tmp):
         p = os.path.join(tmp, f"az{n}.wav")
         _azure_request(ssml, p, region)
         x, fs = _read_wav(p)
+        x = _cap_pauses(x, fs, cfg.get("max_comma_pause", 0.26))
         toks = re.findall(r"[\w’'·-]+", snt)
         wt = _estimate_word_times(x, fs, toks, snt)
         # trim leading/trailing silence, keep a little air
-        a = max(0, int((wt[0][0] - 0.03) * fs)) if wt else 0
-        b = min(len(x), int((wt[-1][1] + 0.08) * fs)) if wt else len(x)
+        a = max(0, int((wt[0][0] - LEAD) * fs)) if wt else 0
+        b = min(len(x), int((wt[-1][1] + TAIL) * fs)) if wt else len(x)
         x = x[a:b]
         words += [(t0 + s0 - a / fs, t0 + s1 - a / fs, w) for s0, s1, w in wt]
-        end_mark = snt[-1] if snt[-1] in gap else "."
-        pause = gap[end_mark] if n < len(sentences) - 1 else 0.05
+        end_mark = snt[-1] if snt[-1] in want else "."
+        silence = want[end_mark] - (QPAUSE if end_mark in Q_MARKS else 0.0)
+        pause = max(0.0, silence - TAIL - LEAD) if n < len(sentences) - 1 else 0.05
         pieces += [x, np.zeros(int(pause * fs))]
         t0 += len(x) / fs + pause
     y = np.clip(np.concatenate(pieces) if pieces else np.zeros(fs // 10), -1, 1)
@@ -283,7 +310,7 @@ def chunks(words, text, maxw=4):
             m = re.match(r"[.,!?;:·…]+", text[pos:])
             if m: w += m.group(0); pos += len(m.group(0))
         cur.append((a, b, w))
-        if len(cur) >= maxw or re.search(r"[.,!?;:·…]$", w):
+        if len(cur) >= maxw or re.search(r"[.,!?;:·…]$", w) or len(" ".join(c[2] for c in cur)) >= 20:
             out.append(cur); cur = []
     if cur: out.append(cur)
     return out
@@ -452,16 +479,24 @@ def story_layer(s, rnd, compact=False, body=True, size=128):
             L.alpha_composite(p, (60, bottom + 20)); bottom += 20 + p.height
     return L.crop((0, 0, W, int(bottom) + 10))
 
-def photo_frame(path, rnd, size=(1010, 620)):
-    """Torn white paper frame + cover-cropped photo (a bit larger, for the slow zoom)."""
+def photo_frame(path, rnd, size=(W, 690)):
+    """Clean, full-width photo (no paper border), cover-cropped and slightly oversized for the
+    slow zoom, with a soft dark fade at the bottom where the headline panel overlaps."""
     im = Image.open(path).convert("RGB")
     tw, th = size
     k = max(tw / im.width, th / im.height) * 1.1
     im = im.resize((int(im.width * k), int(im.height * k)), Image.LANCZOS)
     l, t = (im.width - int(tw * 1.1)) // 2, (im.height - int(th * 1.1)) // 2
     im = im.crop((l, t, l + int(tw * 1.1), t + int(th * 1.1))).convert("RGBA")
-    frame = paper((tw + 36, th + 36), rnd)
-    return {"photo": im, "frame": frame, "size": size, "inset": (38, 38)}
+    frame = Image.new("RGBA", (tw, th), (0, 0, 0, 0))
+    fade = Image.new("RGBA", (tw, th), (0, 0, 0, 0))
+    fd = ImageDraw.Draw(fade)
+    for y in range(th):
+        a = 0
+        if y > th - 220: a = int(170 * ((y - (th - 220)) / 220) ** 1.6)   # bottom fade into the panel
+        if y < 40: a = max(a, int(90 * (1 - y / 40)))                      # tiny top fade under the title
+        fd.line([(0, y), (tw, y)], fill=BG2 + (a,))
+    return {"photo": im, "frame": frame, "size": size, "inset": (0, 0), "fade": fade}
 
 def hook_background(path):
     """Full-bleed photo (cover crop, oversized for zoom) for the opening hook."""
@@ -503,7 +538,7 @@ def draw_caption(img, chunk, t):
         if cur and d.textlength(test, font=f) > W - 140: lines.append(cur); cur = [i]
         else: cur.append(i)
     lines.append(cur)
-    y = 1395 - (len(lines) - 1) * 44
+    y = 1440 - (len(lines) - 1) * 44
     for ln in lines:
         text = " ".join(words[i] for i in ln)
         x = (W - d.textlength(text, font=f)) / 2
@@ -543,8 +578,8 @@ def main():
             lead = 0.05
             dur = duration(wav) + lead + float(s.get("hold", 0.15))
         else:
-            lead = 0.2
-            dur = duration(wav) + lead + (1.2 if i == len(segments) - 1 else 0.25)
+            lead = 0.15
+            dur = duration(wav) + lead + (1.2 if i == len(segments) - 1 else 0.12)
         audio.append((wav, [(a + lead, b + lead, w) for a, b, w in words], dur, lead))
     print("voice engine:", engine)
 
@@ -570,13 +605,13 @@ def main():
     logo = Image.open(logo_path).convert("RGBA") if os.path.exists(logo_path) else None
     if logo: logo = logo.resize((700, int(logo.height * 780 / logo.width)), Image.LANCZOS)
     base = base.convert("RGBA")
-    if logo: base.alpha_composite(logo, ((W - logo.width) // 2, H - logo.height - 250))
+    if logo: base.alpha_composite(logo, ((W - logo.width) // 2, H - logo.height - LOGO_BOTTOM))
 
     layers = []
     for kind, s in segments:
         if kind == "recap":
             rows = [story_layer(st, rnd, compact=True, body=len(cfg["stories"]) <= 4) for st in cfg["stories"]]
-            avail = 1500 - TOP - 6 * len(rows)
+            avail = 1560 - TOP - 6 * len(rows)
             tot = sum(r.height for r in rows)
             if tot > avail:  # keep the recap clear of the logo
                 k = avail / tot
@@ -608,7 +643,7 @@ def main():
             for f in range(n):
                 t = f / FPS
                 img = hook_frame(bgimg, t, dur)
-                if logo: img.alpha_composite(logo, ((W - logo.width) // 2, H - logo.height - 250))
+                if logo: img.alpha_composite(logo, ((W - logo.width) // 2, H - logo.height - LOGO_BOTTOM))
                 # punch-in: starts big (already readable on frame 0), settles fast
                 sc = 1.0 + 0.07 * (1 - ease(t / 0.25))
                 shake = int(10 * math.sin(t * 60) * max(0, 1 - t / 0.35))
@@ -657,6 +692,7 @@ def main():
                 ph_img = src.crop((cx, cy, cx + cw, cy + ch)).resize(fr["size"], Image.BILINEAR)
                 frame = fr["frame"].copy()
                 frame.paste(ph_img, fr["inset"])
+                if fr.get("fade") is not None: frame.alpha_composite(fr["fade"])
                 img.alpha_composite(frame, ((W - frame.width) // 2 + int(W * (1 - pp)), TOP - 20))
                 p = ease((t - 0.18) / 0.4)
                 img.alpha_composite(layer, (int(-W * (1 - p)), TOP - 20 + frame.height - 110))
