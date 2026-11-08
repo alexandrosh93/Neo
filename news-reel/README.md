@@ -38,3 +38,12 @@ python3 build.py script.json reel.mp4
   ανεβάζει αυτόματα τον τόνο στην τελευταία λέξη (pyworld) και βάζει μικρή παύση μετά.
 - Προτιμάμε ερωτήσεις ναι/όχι, που ακούγονται πιο καθαρά σαν ερώτηση:
   «Ξέρεις ποιος το έριξε;», «Θα κερδίσει η Ομόνοια;» αντί για «Ποιος το έριξε;».
+
+## Φωνή (Azure)
+
+Στο `script.json`:
+- `"engine": "azure"` – επίσημο Azure AI Speech (δωρεάν F0, 500.000 χαρακτήρες/μήνα), resource `kouponaki-tts`, `"region": "northeurope"`.
+  Στο cloud session το κλειδί το βάζει αυτόματα ο proxy· τοπικά όρισε `AZURE_SPEECH_KEY`.
+- `"voice"`: `el-GR-NestorasNeural` (rate `+15%`) ή `de-DE-FlorianMultilingualNeural` (rate `+0%`).
+- Κάθε πρόταση συντίθεται χωριστά με φυσικές παύσεις· οι ερωτήσεις παίρνουν ανοδικό τόνο (pyworld).
+- Αν το Azure αποτύχει, πέφτει αυτόματα σε edge-tts (Νέστορας, `edge_rate`).

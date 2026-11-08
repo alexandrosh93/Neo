@@ -1,6 +1,6 @@
 {
   "voice": "el-GR-NestorasNeural",
-  "rate": "+22%",
+  "rate": "+15%",
   "kicker": "ΚΥΠΡΙΑΚΟ ΠΟΔΟΣΦΑΙΡΟ",
   "logo": "assets/logo.png",
   "intro": {
@@ -74,5 +74,8 @@
     "image": "photos/1b-olympiakos-k.jpg",
     "size": 180,
     "voice": "Έπεσε το αήττητο του Απόλλωνα! Ξέρεις ποιος το έριξε;"
-  }
+  },
+  "engine": "azure",
+  "region": "northeurope",
+  "edge_rate": "+22%"
 }

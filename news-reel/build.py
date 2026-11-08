@@ -3,10 +3,15 @@
 
 Usage: python3 build.py [script.json] [output.mp4]
 
-Voice: Microsoft Neural TTS via edge-tts (default el-GR-NestorasNeural, male),
-with word-synced captions. If the service is unreachable it falls back to
-offline espeak-ng + MBROLA (mb-gr2), which sounds robotic.
-Needs: ffmpeg, Pillow, edge-tts (pip). Network: speech.platform.bing.com.
+Voice ("engine" in script.json):
+  azure    - official Azure AI Speech REST API (free F0 tier). The key is injected by the
+             session proxy for <region>.tts.speech.microsoft.com; locally set AZURE_SPEECH_KEY.
+             Each sentence is synthesised separately with natural pauses; word timings for the
+             captions are estimated from the audio (pauses + syllables).
+  edge     - edge-tts (unofficial Edge read-aloud endpoint), exact word timings.
+  fallback - offline espeak-ng + MBROLA (mb-gr2), robotic.
+Questions get a rising end (pyworld) whatever the engine.
+Needs: ffmpeg, Pillow, numpy, pyworld (+ edge-tts for the edge engine).
 """
 import asyncio, json, math, os, random, re, shutil, subprocess, sys, tempfile
 from PIL import Image, ImageDraw, ImageFilter, ImageFont
@@ -47,7 +52,113 @@ async def _edge(text, voice, rate, mp3):
                 words.append((ch["offset"] / 1e7, (ch["offset"] + ch["duration"]) / 1e7, ch["text"]))
     return words
 
+# ---- Azure (official) -------------------------------------------------------
+def _xml(t):
+    return t.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
+
+def _azure_request(ssml, out, region):
+    import ssl, urllib.request
+    key = os.environ.get("AZURE_SPEECH_KEY", "proxy-injected")   # the session proxy replaces the placeholder
+    req = urllib.request.Request(f"https://{region}.tts.speech.microsoft.com/cognitiveservices/v1",
+                                 data=ssml.encode("utf-8"), method="POST",
+                                 headers={"Content-Type": "application/ssml+xml", "User-Agent": "news-reel",
+                                          "X-Microsoft-OutputFormat": "riff-24khz-16bit-mono-pcm",
+                                          "Ocp-Apim-Subscription-Key": key})
+    ctx = ssl.create_default_context(cafile=os.environ.get("SSL_CERT_FILE") or None)
+    with urllib.request.urlopen(req, timeout=60, context=ctx) as r:
+        open(out, "wb").write(r.read())
+
+def _read_wav(p):
+    import numpy as np, wave as wv
+    with wv.open(p) as f:
+        return np.frombuffer(f.readframes(f.getnframes()), dtype=np.int16).astype(np.float64) / 32768, f.getframerate()
+
+def _syllables(w):
+    return max(1, len(re.findall(r"[αεηιουωάέήίόύώϊϋΐΰ]+", w.lower())) or len(w) // 3)
+
+def _estimate_word_times(x, fs, toks, text):
+    """Word timings for one sentence: speech span from energy, comma pauses from silences,
+    and the rest shared out by syllable count."""
+    import numpy as np
+    hop = int(0.01 * fs)
+    rms = np.array([np.sqrt(np.mean(x[i:i + hop] ** 2)) for i in range(0, len(x) - hop, hop)]) if len(x) > hop else np.zeros(1)
+    thr = max(rms.max() * 0.04, 1e-4)
+    on = np.where(rms > thr)[0]
+    if len(on) == 0:
+        return [(0.0, len(x) / fs, t) for t in toks]
+    start, end = on[0] * 0.01, (on[-1] + 1) * 0.01
+    # silent gaps (>=120 ms) inside the speech = comma pauses
+    gaps, run = [], None
+    for i in range(on[0], on[-1] + 1):
+        if rms[i] <= thr:
+            run = i if run is None else run
+        elif run is not None:
+            if i - run >= 12: gaps.append((run * 0.01, i * 0.01))
+            run = None
+    # group words by the commas in the text
+    groups, cur, pos = [], [], 0
+    for t in toks:
+        cur.append(t)
+        k = text.find(t, pos)
+        if k >= 0:
+            pos = k + len(t)
+            if re.match(r"\s*[,:–—]", text[pos:]): groups.append(cur); cur = []
+    if cur: groups.append(cur)
+    cuts = sorted(sorted(gaps, key=lambda g: g[0] - g[1])[:len(groups) - 1]) if len(gaps) >= len(groups) - 1 else None
+    if cuts is None:
+        groups = [[t for g in groups for t in g]]; spans = [(start, end)]
+    else:
+        edges = [start] + [c for g in cuts for c in g] + [end]
+        spans = [(edges[2 * i], edges[2 * i + 1]) for i in range(len(groups))]
+    out = []
+    for g, (a, b) in zip(groups, spans):
+        wts = [_syllables(t) + 0.6 for t in g]; tot = sum(wts); tcur = a
+        for t, wgt in zip(g, wts):
+            d = (b - a) * wgt / tot
+            out.append((tcur, tcur + d, t)); tcur += d
+    return out
+
+def tts_azure(text, cfg, wav, tmp):
+    import numpy as np, wave as wv
+    region = cfg.get("region", "northeurope")
+    voice = cfg.get("voice", "el-GR-NestorasNeural")
+    rate = cfg.get("rate", "+0%")
+    gap = {"!": 0.32, ".": 0.30, ";": 0.12, "?": 0.12, "\u037e": 0.12, "…": 0.35}
+    sentences = [m.strip() for m in re.findall(r"[^.!;?\u037e…]+[.!;?\u037e…]*", text) if m.strip()]
+    pieces, words, t0, fs = [], [], 0.0, 24000
+    for n, snt in enumerate(sentences):
+        body = f'<prosody rate="{rate}">{_xml(snt)}</prosody>'
+        if "Multilingual" in voice: body = f'<lang xml:lang="el-GR">{body}</lang>'
+        ssml = ('<speak version="1.0" xmlns="http://www.w3.org/2001/10/synthesis" '
+                f'xmlns:mstts="https://www.w3.org/2001/mstts" xml:lang="el-GR"><voice name="{voice}">{body}</voice></speak>')
+        p = os.path.join(tmp, f"az{n}.wav")
+        _azure_request(ssml, p, region)
+        x, fs = _read_wav(p)
+        toks = re.findall(r"[\w’'·-]+", snt)
+        wt = _estimate_word_times(x, fs, toks, snt)
+        # trim leading/trailing silence, keep a little air
+        a = max(0, int((wt[0][0] - 0.03) * fs)) if wt else 0
+        b = min(len(x), int((wt[-1][1] + 0.08) * fs)) if wt else len(x)
+        x = x[a:b]
+        words += [(t0 + s0 - a / fs, t0 + s1 - a / fs, w) for s0, s1, w in wt]
+        end_mark = snt[-1] if snt[-1] in gap else "."
+        pause = gap[end_mark] if n < len(sentences) - 1 else 0.05
+        pieces += [x, np.zeros(int(pause * fs))]
+        t0 += len(x) / fs + pause
+    y = np.clip(np.concatenate(pieces) if pieces else np.zeros(fs // 10), -1, 1)
+    raw = os.path.join(tmp, "az_all.wav")
+    with wv.open(raw, "wb") as f:
+        f.setnchannels(1); f.setsampwidth(2); f.setframerate(fs); f.writeframes((y * 32767).astype(np.int16).tobytes())
+    subprocess.run(["ffmpeg", "-y", "-loglevel", "error", "-i", raw, "-ar", "44100", "-ac", "1", wav], check=True)
+    return words
+
 def tts(text, cfg, wav, tmp):
+    if cfg.get("engine", "edge") == "azure":
+        try:
+            return tts_azure(text, cfg, wav, tmp), f"azure ({cfg.get('voice')})"
+        except Exception as e:
+            print("azure failed, trying edge-tts:", e)
+            cfg = dict(cfg, voice="el-GR-NestorasNeural", rate=cfg.get("edge_rate", "+22%"))
     mp3 = os.path.join(tmp, "e.mp3")
     try:
         words = asyncio.run(_edge(text, cfg.get("voice", "el-GR-NestorasNeural"), cfg.get("rate", "+0%"), mp3))
