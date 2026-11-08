@@ -527,6 +527,224 @@ def hook_frame(bg, t, dur):
     img.alpha_composite(_grad)
     return img
 
+# ---------------------------------------------------------------- follow pop-up (end card)
+SR = 44100
+EMOJI_FONT = "/usr/share/fonts/truetype/noto/NotoColorEmoji.ttf"
+
+def ease_out_back(t, s=1.70158):
+    t = max(0.0, min(1.0, t)); return 1 + (s + 1) * (t - 1) ** 3 + s * (t - 1) ** 2
+
+def place(dst, im, cx, cy, s=1.0, a=1.0, rot=0.0):
+    """Composite `im` centred at (cx, cy) with scale, opacity and rotation; clips at the frame edges."""
+    if s <= 0.01 or a <= 0.01: return
+    w, h = max(1, int(im.width * s)), max(1, int(im.height * s))
+    t = im.resize((w, h), Image.BILINEAR) if (w, h) != im.size else im
+    if rot: t = t.rotate(rot, expand=True, resample=Image.BICUBIC)
+    if a < 0.999:
+        t = t.copy(); t.putalpha(t.getchannel("A").point(lambda v: int(v * a)))
+    x, y = int(cx - t.width / 2), int(cy - t.height / 2)
+    l, u = max(0, -x), max(0, -y)
+    r, b = min(t.width, dst.width - x), min(t.height, dst.height - y)
+    if r > l and b > u:
+        dst.alpha_composite(t.crop((l, u, r, b)), (x + l, y + u))
+
+_emo = {}
+def emoji_img(ch, size):
+    if (ch, size) not in _emo:
+        f = ImageFont.truetype(EMOJI_FONT, 109)
+        im = Image.new("RGBA", (160, 160), (0, 0, 0, 0))
+        ImageDraw.Draw(im).text((10, 10), ch, font=f, embedded_color=True)
+        im = im.crop(im.getbbox()); k = size / max(im.size)
+        _emo[(ch, size)] = im.resize((max(1, int(im.width * k)), max(1, int(im.height * k))), Image.LANCZOS)
+    return _emo[(ch, size)]
+
+def _pill(w, h, fill, outline=None, top=None):
+    im = Image.new("RGBA", (w, h), (0, 0, 0, 0))
+    ImageDraw.Draw(im).rounded_rectangle((0, 0, w - 1, h - 1), h // 2, fill=fill + (255,),
+                                         outline=outline and outline + (255,), width=5 if outline else 0)
+    if top:
+        hi = Image.new("RGBA", (w, h), (0, 0, 0, 0))
+        ImageDraw.Draw(hi).rounded_rectangle((8, 6, w - 9, h // 2), h // 4, fill=top)
+        im.alpha_composite(hi.filter(ImageFilter.GaussianBlur(4)))
+    return im
+
+def _icon(kind, size, color, width=10):
+    im = Image.new("RGBA", (size * 4, size * 4), (0, 0, 0, 0))
+    d, s4, w = ImageDraw.Draw(im), size * 4, width * 4
+    if kind == "plus":
+        d.line((s4 / 2, w / 2, s4 / 2, s4 - w / 2), fill=color + (255,), width=w)
+        d.line((w / 2, s4 / 2, s4 - w / 2, s4 / 2), fill=color + (255,), width=w)
+    else:
+        d.line([(w / 2, s4 * 0.55), (s4 * 0.38, s4 - w), (s4 - w / 2, w)], fill=color + (255,), width=w, joint="curve")
+    return im.resize((size, size), Image.LANCZOS)
+
+def follow_card(cfg):
+    """Static parts of the follow pop-up: kouponaki profile card, avatar, both button states."""
+    fc = cfg.get("follow", {})
+    CW, CH, R, pad = 760, 300, 46, 50
+    card = Image.new("RGBA", (CW, CH), (0, 0, 0, 0))
+    ImageDraw.Draw(card).rounded_rectangle((0, 0, CW - 1, CH - 1), R, fill=(250, 250, 252, 255))
+    D = 140
+    av = Image.new("RGBA", (D, D), (0, 0, 0, 0))
+    ImageDraw.Draw(av).ellipse((0, 0, D - 1, D - 1), fill=GREEN + (255,))
+    ImageDraw.Draw(av).ellipse((8, 8, D - 9, D - 9), fill=(16, 22, 26, 255))
+    logo = Image.open(os.path.join(HERE, cfg.get("logo", "assets/logo.png"))).convert("RGBA")
+    a = logo.getchannel("A"); cols = [a.crop((x, 0, x + 1, logo.height)).getbbox() is not None for x in range(logo.width)]
+    cut = next((x for x in range(40, logo.width) if not cols[x]), logo.width // 4)      # the ticket+ball icon
+    icon = logo.crop((0, 0, cut, logo.height)); icon = icon.crop(icon.getbbox())
+    k = 104 / max(icon.size); icon = icon.resize((int(icon.width * k), int(icon.height * k)), Image.LANCZOS)
+    av.alpha_composite(icon, ((D - icon.width) // 2, (D - icon.height) // 2))
+    card.alpha_composite(av, (30, 30))
+    d = ImageDraw.Draw(card)
+    d.text((196, 40), fc.get("name", "kouponaki.com"), font=font(F_BLACK_I, 58), fill=INK)
+    sub, size = fc.get("sub", "Για περισσότερα «ΠΑΣΑ στα ΝΕΑ»"), 34
+    while size > 20 and d.textlength(sub, font=font(F_SEMI, size)) > CW - 196 - 24: size -= 1
+    d.text((198, 112), sub, font=font(F_SEMI, size), fill=(112, 118, 128))
+    bw, bh = CW - 60, 100
+    tf = font(F_BLACK_I, 60)
+    def button(label, fill, txt, icon_kind, outline=None, top=None):
+        b = _pill(bw, bh, fill, outline=outline, top=top)
+        ic = _icon(icon_kind, 40, txt)
+        bd = ImageDraw.Draw(b); tw = bd.textlength(label, font=tf)
+        x = (bw - (ic.width + 18 + tw)) // 2
+        b.alpha_composite(ic, (int(x), (bh - ic.height) // 2))
+        bd.text((x + ic.width + 18, bh // 2 + 2), label, font=tf, fill=txt, anchor="lm")
+        return b
+    follow = button(fc.get("button", "ΚΑΝΕ FOLLOW"), GREEN, INK, "plus", top=(255, 255, 255, 90))
+    done = button(fc.get("following", "FOLLOWING"), (22, 26, 32), GREEN, "check", outline=GREEN)
+    shadow = Image.new("L", (CW + 2 * pad, CH + 2 * pad), 0)
+    ImageDraw.Draw(shadow).rounded_rectangle((pad, pad + 18, pad + CW, pad + CH + 18), R, fill=140)
+    plus, ok = Image.new("RGBA", (52, 52), (0, 0, 0, 0)), Image.new("RGBA", (52, 52), (0, 0, 0, 0))
+    ImageDraw.Draw(plus).ellipse((0, 0, 51, 51), fill=(255, 59, 92, 255), outline=(250, 250, 252, 255), width=5)
+    plus.alpha_composite(_icon("plus", 24, WHITE, 6), (14, 14))
+    ImageDraw.Draw(ok).ellipse((0, 0, 51, 51), fill=GREEN + (255,), outline=(250, 250, 252, 255), width=5)
+    ok.alpha_composite(_icon("check", 26, INK, 6), (13, 14))
+    gl = Image.new("RGBA", (CW + 120, CH + 120), (0, 0, 0, 0))
+    ImageDraw.Draw(gl).rounded_rectangle((60, 60, 60 + CW, 60 + CH), R, fill=GREEN + (255,))
+    gl = gl.filter(ImageFilter.GaussianBlur(26))
+    return dict(card=card, shadow=shadow.filter(ImageFilter.GaussianBlur(22)), pad=pad, CW=CW, CH=CH,
+                follow=follow, done=done, btn=(30, 180, bw, bh), plus=plus, ok=ok, av_badge=(30 + D - 40, 30 + D - 44),
+                glow=gl, pointer=emoji_img("👆", 132), bell=emoji_img("🔔", 78),
+                floaters=[(emoji_img(e, 64), dx) for e, dx in zip("💚⚽🔥💛⭐", random.Random(11).sample(range(-300, 300, 30), 5))],
+                sparks=[dict(a=r.uniform(0, 2 * math.pi), v=r.uniform(520, 1150), r=r.uniform(5, 12),
+                             col=r.choice([GREEN, GREEN, YELLOW, WHITE]), star=r.random() < 0.35)
+                        for r in [random.Random(5)] for _ in range(34)])
+
+def follow_times(words, default=1.2):
+    """When the pop-up appears (as «φόλοου» is said), the tap, and the switch to FOLLOWING."""
+    tw = next((a for a, b, w in words if re.sub(r"[^\w]", "", w).lower() in ("φόλοου", "follow")), default)
+    tF = max(0.5, tw - 0.3)
+    return dict(tF=tF, tP=tF + 0.55, tTap=tF + 1.05, tOn=tF + 1.11)
+
+def draw_follow(fr, t, k, T, CX=W // 2, CY=880):
+    tF, tP, tTap, tOn = T["tF"], T["tP"], T["tTap"], T["tOn"]
+    v = t - tF
+    if v <= 0: return
+    dim = Image.new("RGBA", fr.size, (4, 10, 14, int(150 * min(1, v / 0.3))))     # focus on the card
+    fr.alpha_composite(dim)
+    bx, by, bw, bh = k["btn"]
+    bc = (CX - k["CW"] / 2 + bx + bw / 2, CY - k["CH"] / 2 + by + bh / 2)
+    target = (bc[0] + 150, bc[1] + 8)
+    card = k["card"].copy()
+    on = t >= tOn
+    press = 1 - 0.07 * math.sin(math.pi * min(1, max(0, (t - tTap) / 0.16)))
+    btn = k["done"] if on else k["follow"]
+    if press < 0.999: btn = btn.resize((int(bw * press), int(bh * press)), Image.BILINEAR)
+    card.alpha_composite(btn, (int(bx + (bw - btn.width) / 2), int(by + (bh - btn.height) / 2)))
+    if on:
+        q = ease_out_back((t - tOn) / 0.35, 2.2)
+        b = k["ok"].resize((max(1, int(52 * q)), max(1, int(52 * q))), Image.BILINEAR)
+        card.alpha_composite(b, (int(k["av_badge"][0] + 26 - b.width / 2), int(k["av_badge"][1] + 26 - b.height / 2)))
+    else:
+        card.alpha_composite(k["plus"], k["av_badge"])
+    comp = Image.new("RGBA", k["shadow"].size, (0, 0, 0, 0))
+    comp.paste((0, 0, 0, 255), (0, 0), k["shadow"])
+    comp.alpha_composite(card, (k["pad"], k["pad"]))
+    s = ease_out_back(v / 0.45, 1.9)
+    if on: s *= 1 + 0.045 * math.sin(math.pi * min(1, (t - tOn) / 0.3))
+    bob = 5 * math.sin(2 * math.pi * 0.7 * max(0, v - 0.45))
+    rot = -7 * (1 - ease(v / 0.45))
+    if on:
+        place(fr, k["glow"], CX, CY + bob, s, 0.9 * math.sin(math.pi * min(1, (t - tOn) / 0.9)))
+    place(fr, comp, CX, CY + bob, s, min(1, v / 0.12), rot)
+    if v > 0.25:
+        ring = 22 * math.sin(2 * math.pi * 5 * (t - tOn)) * math.exp(-3 * (t - tOn)) if on else 0
+        place(fr, k["bell"], CX + k["CW"] / 2 - 40, CY - k["CH"] / 2 + 2 + bob, ease_out_back((v - 0.25) / 0.4, 2.2), 1, ring)
+    if tP <= t < tOn + 0.75:
+        e = ease(min(1, (t - tP) / 0.4))
+        x = target[0] + 230 * (1 - e)
+        y = target[1] + 330 * (1 - e) + k["pointer"].height * 0.42
+        sc = 1 - 0.14 * math.sin(math.pi * min(1, max(0, (t - tTap) / 0.16)))
+        fade = 1 - min(1, max(0, (t - tOn - 0.35) / 0.4))
+        place(fr, k["pointer"], x, y + 40 * (1 - fade), sc, fade, 8)
+    if on and t - tOn < 1.1:
+        w = t - tOn; d = ImageDraw.Draw(fr)
+        for sp in k["sparks"]:
+            dist = sp["v"] * (1 - math.exp(-3.2 * w)) / 3.2
+            x = bc[0] + math.cos(sp["a"]) * dist * 1.25
+            y = bc[1] + math.sin(sp["a"]) * dist + 380 * w * w
+            r = sp["r"] * (1 - w / 1.1); a = int(255 * max(0, 1 - w / 1.1))
+            if sp["star"]:
+                d.polygon([(x + math.cos(i * math.pi / 4) * (r * 1.8 if i % 2 == 0 else r * 0.6),
+                            y + math.sin(i * math.pi / 4) * (r * 1.8 if i % 2 == 0 else r * 0.6)) for i in range(8)],
+                          fill=sp["col"] + (a,))
+            else:
+                d.ellipse((x - r, y - r, x + r, y + r), fill=sp["col"] + (a,))
+    if on:
+        for i, (em, dx) in enumerate(k["floaters"]):
+            w = t - tOn - 0.08 * i
+            if 0 < w < 1.6:
+                place(fr, em, bc[0] + dx * 0.9 + 26 * math.sin(w * 5 + i), bc[1] - 40 - 330 * ease(min(1, w / 1.6)),
+                      ease_out_back(min(1, w / 0.3), 2.5) * 0.9, 1 - max(0, (w - 1.1) / 0.5))
+
+# --- sound effects (synthesised) ---
+def _env(dur): import numpy as np; return np.arange(int(dur * SR)) / SR
+def _band(dur, lo, hi, seed=0):
+    import numpy as np
+    n = int(dur * SR); x = np.random.default_rng(seed).standard_normal(n)
+    X = np.fft.rfft(x); f = np.fft.rfftfreq(n, 1 / SR); X[(f < lo) | (f > hi)] = 0
+    y = np.fft.irfft(X, n); return y / (np.abs(y).max() + 1e-9)
+def sfx_whoosh(dur=0.5):
+    import numpy as np
+    t = _env(dur); return _band(dur, 300, 4000, 3) * np.sin(np.pi * t / dur) ** 2 * 0.6
+def sfx_pop(dur=0.14):
+    import numpy as np
+    t = _env(dur); f = 900 - 600 * t / dur
+    return np.sin(2 * np.pi * np.cumsum(f) / SR) * np.exp(-t * 30)
+def sfx_click(dur=0.09):
+    import numpy as np
+    t = _env(dur); return _band(dur, 1800, 9000, 4) * np.exp(-t * 170) * 0.8 + np.sin(2 * np.pi * 900 * t) * np.exp(-t * 80) * 0.5
+def sfx_notify(dur=1.0):
+    import numpy as np
+    t = _env(dur)
+    def note(f, t0):
+        tt = np.clip(t - t0, 0, None)
+        tone = sum(g * np.sin(2 * np.pi * f * k * tt) for k, g in ((1, 1.0), (2, 0.35), (3, 0.12)))
+        return (t >= t0) * tone * np.exp(-tt * 6.5) * np.clip(tt / 0.004, 0, 1)
+    return note(1318.5, 0.0) * 0.55 + note(1975.5, 0.11) * 0.6
+def sfx_confetti(dur=1.4):
+    import numpy as np
+    rng = np.random.default_rng(7); y = np.zeros(int(dur * SR))
+    for _ in range(70):
+        t0 = int(abs(rng.normal(0.25, 0.3)) * SR)
+        if t0 >= len(y) - 400: continue
+        c = sfx_click(0.02) * rng.uniform(0.15, 0.6)
+        y[t0:t0 + len(c)] += c[: len(y) - t0]
+    return y * np.exp(-np.arange(len(y)) / SR * 1.8)
+
+def mix_sfx(path, events):
+    """Add sound effects [(time, name, gain)] into a mono 16-bit wav in place."""
+    import numpy as np, wave as wv
+    lib = {"whoosh": sfx_whoosh, "pop": sfx_pop, "click": sfx_click, "notify": sfx_notify, "confetti": sfx_confetti}
+    with wv.open(path) as f:
+        fs = f.getframerate(); y = np.frombuffer(f.readframes(f.getnframes()), dtype=np.int16).astype(np.float64) / 32768
+    for t0, name, g in events:
+        s = lib[name](); i = int(t0 * fs)
+        if 0 <= i < len(y): y[i:i + len(s)] += s[: len(y) - i] * g
+    with wv.open(path, "wb") as f:
+        f.setnchannels(1); f.setsampwidth(2); f.setframerate(fs)
+        f.writeframes((np.clip(y, -1, 1) * 32767).astype(np.int16).tobytes())
+
 def draw_caption(img, chunk, t):
     if not chunk: return
     d = ImageDraw.Draw(img)
@@ -561,8 +779,13 @@ def main():
     intro_video = os.path.join(HERE, intro["video"]) if intro.get("video") else None
     hook = cfg.get("hook")
     intro_start = float(intro.get("start", 0))
+    outro = dict(cfg["outro"])
+    FOLLOW = cfg.get("follow", {}).get("enabled", True)
+    if FOLLOW and not re.search(r"φόλοου|follow", outro["voice"], re.I):
+        outro["voice"] = outro["voice"].rstrip() + " Κάνε φόλοου για να μη χάνεις τίποτα!"
     segments = ([("hook", hook)] if hook else []) + [("intro", intro)] + \
-               [("story", s) for s in cfg["stories"]] + [("recap", cfg["outro"])]
+               [("story", s) for s in cfg["stories"]] + [("recap", outro)]
+    FT = None
     audio = []
     for i, (kind, s) in enumerate(segments):
         wav = os.path.join(tmp, f"v{i}.wav")
@@ -580,6 +803,9 @@ def main():
         else:
             lead = 0.15
             dur = duration(wav) + lead + (1.2 if i == len(segments) - 1 else 0.12)
+        if kind == "recap" and FOLLOW:
+            FT = follow_times([(a + lead, b + lead, w) for a, b, w in words])
+            dur = max(dur, FT["tOn"] + 1.9)
         audio.append((wav, [(a + lead, b + lead, w) for a, b, w in words], dur, lead))
     print("voice engine:", engine)
 
@@ -631,6 +857,7 @@ def main():
             else:
                 layers.append([story_layer(s, rnd), None])
 
+    FCARD = follow_card(cfg) if FOLLOW else None
     video = os.path.join(tmp, "video.mp4")
     proc = subprocess.Popen(["ffmpeg", "-y", "-loglevel", "error", "-f", "rawvideo", "-pix_fmt", "rgba",
                              "-s", f"{W}x{H}", "-r", str(FPS), "-i", "-", "-c:v", "libx264", "-preset", "medium",
@@ -702,6 +929,8 @@ def main():
                     p = ease((t - k * 0.18) / 0.35)
                     if p > 0: img.alpha_composite(r, ((W - r.width) // 2 + int(-W * (1 - p)), y))
                     y += r.height + 6
+                if FOLLOW and FT:
+                    draw_follow(img, t, FCARD, FT, CY=int(cfg.get("follow", {}).get("y", 900)))
             if not isinstance(rows, list):
                 cur = next((c for c in caps if c[0][0] - 0.05 <= t <= c[-1][1] + 0.25), None)
                 draw_caption(img, cur, t)
@@ -729,6 +958,9 @@ def main():
             else:
                 subprocess.run(["ffmpeg", "-y", "-loglevel", "error", "-i", wav, "-af",
                                 f"adelay={int(lead * 1000)},apad", "-t", f"{dur:.3f}", "-ar", "44100", "-ac", "1", p], check=True)
+                if segments[i][0] == "recap" and FOLLOW and FT:
+                    mix_sfx(p, [(FT["tF"], "whoosh", 0.35), (FT["tF"] + 0.06, "pop", 0.5), (FT["tP"], "whoosh", 0.25),
+                                (FT["tTap"], "click", 0.45), (FT["tOn"], "notify", 0.55), (FT["tOn"] + 0.02, "confetti", 0.4)])
             fh.write(f"file '{p}'\n")
     voice = os.path.join(tmp, "voice.wav")
     subprocess.run(["ffmpeg", "-y", "-loglevel", "error", "-f", "concat", "-safe", "0", "-i", lst, voice], check=True)
