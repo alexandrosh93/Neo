@@ -67,5 +67,5 @@ python3 build.py script.json reel.mp4
 
 ## Ένταση
 
-Όλο το soundtrack κανονικοποιείται στο τέλος στα **-13 LUFS** (peak -1 dBTP), πιο δυνατά από το standard
+Η φωνή περνάει από ελαφριά συμπίεση (στυλ voiceover) και όλο το soundtrack κανονικοποιείται στα **-13 LUFS** (peak -1 dB), πιο δυνατά από το standard
 των social (-14). Ρύθμιση: `"loudness"` στο `script.json`.

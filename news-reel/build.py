@@ -746,7 +746,13 @@ def mix_sfx(path, events):
         f.writeframes((np.clip(y, -1, 1) * 32767).astype(np.int16).tobytes())
 
 def loudnorm(src, dst, target=-13.0, tp=-1.0):
-    """Two-pass EBU R128 loudness normalisation of the whole soundtrack (social apps play around -14 LUFS)."""
+    """Voice-over style compression + peak limiting, then two-pass EBU R128 loudness normalisation
+    of the whole soundtrack (social apps play around -14 LUFS)."""
+    pre = dst + ".pre.wav"
+    subprocess.run(["ffmpeg", "-y", "-loglevel", "error", "-i", src, "-af",
+                    "acompressor=threshold=-20dB:ratio=3:attack=5:release=90:makeup=3dB,"
+                    "alimiter=limit=0.7:attack=3:release=40:level=false", "-ar", "44100", "-ac", "1", pre], check=True)
+    src = pre
     r = subprocess.run(["ffmpeg", "-hide_banner", "-i", src, "-af",
                         f"loudnorm=I={target}:TP={tp}:LRA=11:print_format=json", "-f", "null", "-"],
                        capture_output=True, text=True)
