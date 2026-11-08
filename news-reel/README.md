@@ -64,3 +64,8 @@ python3 build.py script.json reel.mp4
 - Σπίθες, κομφετί, emoji και καμπανάκι που χτυπάει.
 - Αν το `outro.voice` δεν λέει «φόλοου», προστίθεται αυτόματα «Κάνε φόλοου για να μη χάνεις τίποτα!».
 - Ρυθμίσεις στο `"follow"`: `enabled`, `name`, `sub`, `button`, `following`, `y`.
+
+## Ένταση
+
+Όλο το soundtrack κανονικοποιείται στο τέλος στα **-13 LUFS** (peak -1 dBTP), πιο δυνατά από το standard
+των social (-14). Ρύθμιση: `"loudness"` στο `script.json`.

@@ -745,6 +745,20 @@ def mix_sfx(path, events):
         f.setnchannels(1); f.setsampwidth(2); f.setframerate(fs)
         f.writeframes((np.clip(y, -1, 1) * 32767).astype(np.int16).tobytes())
 
+def loudnorm(src, dst, target=-13.0, tp=-1.0):
+    """Two-pass EBU R128 loudness normalisation of the whole soundtrack (social apps play around -14 LUFS)."""
+    r = subprocess.run(["ffmpeg", "-hide_banner", "-i", src, "-af",
+                        f"loudnorm=I={target}:TP={tp}:LRA=11:print_format=json", "-f", "null", "-"],
+                       capture_output=True, text=True)
+    try:
+        m = json.loads(r.stderr[r.stderr.rindex("{"):r.stderr.rindex("}") + 1])
+        af = (f"loudnorm=I={target}:TP={tp}:LRA=11:measured_I={m['input_i']}:measured_TP={m['input_tp']}:"
+              f"measured_LRA={m['input_lra']}:measured_thresh={m['input_thresh']}:offset={m['target_offset']}:linear=true")
+    except Exception:
+        af = f"loudnorm=I={target}:TP={tp}:LRA=11"
+    subprocess.run(["ffmpeg", "-y", "-loglevel", "error", "-i", src, "-af", af, "-ar", "44100", "-ac", "1", dst], check=True)
+    return dst
+
 def draw_caption(img, chunk, t):
     if not chunk: return
     d = ImageDraw.Draw(img)
@@ -964,6 +978,7 @@ def main():
             fh.write(f"file '{p}'\n")
     voice = os.path.join(tmp, "voice.wav")
     subprocess.run(["ffmpeg", "-y", "-loglevel", "error", "-f", "concat", "-safe", "0", "-i", lst, voice], check=True)
+    voice = loudnorm(voice, os.path.join(tmp, "voice_loud.wav"), float(cfg.get("loudness", -13)))
     subprocess.run(["ffmpeg", "-y", "-loglevel", "error", "-i", video, "-i", voice, "-c:v", "copy",
                     "-c:a", "aac", "-b:a", "192k", "-shortest", "-movflags", "+faststart", out], check=True)
     shutil.rmtree(tmp)

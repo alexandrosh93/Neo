@@ -67,5 +67,6 @@
   },
   "engine": "azure",
   "region": "northeurope",
-  "edge_rate": "+22%"
+  "edge_rate": "+22%",
+  "loudness": -13
 }
