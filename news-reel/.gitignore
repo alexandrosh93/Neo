@@ -1,2 +1,3 @@
 *.mp4
 photos/
+__pycache__/
