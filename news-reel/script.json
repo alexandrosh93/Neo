@@ -68,5 +68,6 @@
   "engine": "azure",
   "region": "northeurope",
   "edge_rate": "+22%",
-  "loudness": -13
+  "loudness": -13,
+  "date": "2026-11-08"
 }

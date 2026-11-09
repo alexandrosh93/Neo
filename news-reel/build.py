@@ -791,6 +791,39 @@ def lint_voice(cfg, pron):
     if hook and len(hook.split()) > 14: out.append("[hook] πάνω από 14 λέξεις: το hook πρέπει να «χτυπάει» στα 2-3 δευτερόλεπτα")
     return out
 
+GR_DAYS = ["ΔΕΥ", "ΤΡΙ", "ΤΕΤ", "ΠΕΜ", "ΠΑΡ", "ΣΑΒ", "ΚΥΡ"]
+GR_MONTHS = ["ΙΑΝ", "ΦΕΒ", "ΜΑΡ", "ΑΠΡ", "ΜΑΪ", "ΙΟΥΝ", "ΙΟΥΛ", "ΑΥΓ", "ΣΕΠ", "ΟΚΤ", "ΝΟΕ", "ΔΕΚ"]
+
+def reel_date(cfg):
+    import datetime
+    if cfg.get("date"):
+        return datetime.date.fromisoformat(cfg["date"])
+    try:
+        from zoneinfo import ZoneInfo
+        return datetime.datetime.now(ZoneInfo("Asia/Nicosia")).date()
+    except Exception:
+        return datetime.date.today()
+
+def date_badge(d, w=100, h=124):
+    """Small calendar tile (day / date / month) shown discreetly next to the logotype."""
+    pad = 14
+    im = Image.new("RGBA", (w + 2 * pad, h + 2 * pad), (0, 0, 0, 0))
+    sh = Image.new("RGBA", im.size, (0, 0, 0, 0))
+    ImageDraw.Draw(sh).rounded_rectangle((pad, pad + 5, pad + w, pad + h + 5), 16, fill=(0, 0, 0, 150))
+    im.alpha_composite(sh.filter(ImageFilter.GaussianBlur(6)))
+    t = Image.new("RGBA", (w, h), (0, 0, 0, 0))
+    td = ImageDraw.Draw(t)
+    td.rounded_rectangle((0, 0, w - 1, h - 1), 16, fill=(14, 30, 36, 255), outline=(255, 255, 255, 60), width=2)
+    band = Image.new("L", (w, h), 0)
+    ImageDraw.Draw(band).rounded_rectangle((0, 0, w - 1, h - 1), 16, fill=255)
+    ImageDraw.Draw(band).rectangle((0, 34, w, h), fill=0)
+    t.paste(GREEN + (255,), (0, 0), band)
+    td.text((w / 2, 18), GR_DAYS[d.weekday()], font=font(F_XB_I, 26), fill=INK, anchor="mm")
+    td.text((w / 2, 70), f"{d.day:02d}", font=font(F_BLACK_I, 54), fill=WHITE, anchor="mm")
+    td.text((w / 2, 106), GR_MONTHS[d.month - 1], font=font(F_XB_I, 24), fill=YELLOW, anchor="mm")
+    im.alpha_composite(t, (pad, pad))
+    return im
+
 def draw_caption(img, chunk, t):
     if not chunk: return
     d = ImageDraw.Draw(img)
@@ -877,9 +910,12 @@ def main():
 
     logo_path = os.path.join(HERE, cfg.get("logo", "assets/logo.png"))
     logo = Image.open(logo_path).convert("RGBA") if os.path.exists(logo_path) else None
-    if logo: logo = logo.resize((700, int(logo.height * 780 / logo.width)), Image.LANCZOS)
+    if logo: logo = logo.resize((700, int(logo.height * 700 / logo.width)), Image.LANCZOS)
     base = base.convert("RGBA")
     if logo: base.alpha_composite(logo, ((W - logo.width) // 2, H - logo.height - LOGO_BOTTOM))
+    BADGE = date_badge(reel_date(cfg)) if cfg.get("show_date", True) else None
+    if BADGE:   # right of the logotype, vertically centred on it
+        base.alpha_composite(BADGE, (W - BADGE.width - 4, TITLE_Y + (title.height - BADGE.height) // 2))
 
     layers = []
     for kind, s in segments:
@@ -919,6 +955,7 @@ def main():
                 t = f / FPS
                 img = hook_frame(bgimg, t, dur)
                 if logo: img.alpha_composite(logo, ((W - logo.width) // 2, H - logo.height - LOGO_BOTTOM))
+                if BADGE: img.alpha_composite(BADGE, (W - BADGE.width - 4, 70))
                 # punch-in: starts big (already readable on frame 0), settles fast
                 sc = 1.0 + 0.07 * (1 - ease(t / 0.25))
                 shake = int(10 * math.sin(t * 60) * max(0, 1 - t / 0.35))
