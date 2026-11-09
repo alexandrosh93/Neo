@@ -56,3 +56,11 @@ Reels (9:16) με τα νέα του κυπριακού ποδοσφαίρου �
 3. `script.json` (hook, intro, stories, outro) → `python3 build.py script.json <out.mp4>` με `SSL_CERT_FILE=/root/.ccr/ca-bundle.crt`.
 4. Έλεγχος: 0 προειδοποιήσεις κειμένου, frames, παύσεις.
 5. Στέλνουμε το mp4 + caption για Instagram και TikTok (εκεί επιτρέπονται ερωτήσεις για σχόλια, 📸 credit πηγής) + πηγές.
+
+## 5. Format «Βαθμολογία» (μετά από κάθε αγωνιστική)
+- Πλήρης πίνακας από το kerkida.net (`/vathmologies?field_championship_category_value=0` = Α' Κατηγορία).
+- `stories` = ένα story με `"type": "table"` και `"table": [{pos, team, played, gd, pts, delta, keys}]`.
+  `delta` = βαθμοί της αγωνιστικής (υπολογίζονται από τα αποτελέσματα), `keys` = πώς λέγεται η ομάδα στη φωνή
+  (π.χ. «Ομόνοια Είκοσι» για την 29Μ), ώστε να φωτίζεται η γραμμή όταν την αναφέρει η φωνή.
+- Hook με τη μεγαλύτερη «ιστορία» της βαθμολογίας (π.χ. «Πέντε ομάδες σε δύο βαθμούς κυνηγούν την ΑΕΚ!»).
+- `"table_still": "<όνομα>.jpg"` βγάζει και εικόνα 9:16 του πίνακα για story στο Instagram/Facebook.

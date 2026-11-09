@@ -824,6 +824,82 @@ def date_badge(d, w=100, h=124):
     im.alpha_composite(t, (pad, pad))
     return im
 
+# ---------------------------------------------------------------- standings table slide
+def _norm(w):
+    import unicodedata
+    w = unicodedata.normalize("NFD", w.lower())
+    return re.sub(r"[^\w]", "", "".join(c for c in w if not unicodedata.combining(c)))
+
+def table_prerender(s):
+    """Header, tag and one image per row (normal + highlighted) for a standings slide."""
+    RW, RH = 1000, 58
+    cols = {"P": 642, "GD": 742, "PTS": 842, "D": 940}       # column centres
+    f_team, f_num, f_pts, f_lab = font(F_BOLD, 38), font(F_SEMI, 34), font(F_BLACK_I, 42), font(F_XB_I, 24)
+    rows = []
+    for i, r in enumerate(s["table"]):
+        imgs = []
+        for hl in (False, True):
+            im = Image.new("RGBA", (RW, RH), (0, 0, 0, 0)); d = ImageDraw.Draw(im)
+            bg = (30, 64, 52, 255) if hl else ((18, 36, 44, 235) if i % 2 == 0 else (12, 28, 34, 235))
+            d.rounded_rectangle((0, 0, RW - 1, RH - 1), 14, fill=bg, outline=GREEN + (255,) if hl else None, width=4 if hl else 0)
+            first = r["pos"] == 1
+            d.rounded_rectangle((8, 7, 66, RH - 8), 10, fill=(YELLOW if first else (34, 58, 66)) + (255,))
+            d.text((37, RH / 2), str(r["pos"]), font=font(F_BLACK_I, 34), fill=INK if first else WHITE, anchor="mm")
+            d.text((86, RH / 2 + 1), r["team"], font=f_team, fill=WHITE, anchor="lm")
+            d.text((cols["P"], RH / 2 + 1), str(r["played"]), font=f_num, fill=(170, 190, 200), anchor="mm")
+            gd = r["gd"]; d.text((cols["GD"], RH / 2 + 1), f"{gd:+d}" if gd else "0", font=f_num, fill=(170, 190, 200), anchor="mm")
+            d.text((cols["PTS"], RH / 2 + 1), str(r["pts"]), font=f_pts, fill=YELLOW, anchor="mm")
+            dl = r.get("delta", 0)
+            pc = GREEN if dl >= 3 else ((255, 196, 0) if dl == 1 else (70, 86, 94))
+            d.rounded_rectangle((cols["D"] - 38, 12, cols["D"] + 38, RH - 12), (RH - 24) // 2, fill=pc + (255,))
+            d.text((cols["D"], RH / 2 + 1), f"+{dl}", font=font(F_BLACK_I, 28), fill=INK if dl else WHITE, anchor="mm")
+            imgs.append(im)
+        rows.append(imgs)
+    head = Image.new("RGBA", (RW, 40), (0, 0, 0, 0)); hd = ImageDraw.Draw(head)
+    for k, lab in (("P", "ΑΓ"), ("GD", "ΓΔ"), ("PTS", "Β"), ("D", "ΤΩΡΑ")):
+        hd.text((cols[k], 20), lab, font=f_lab, fill=(150, 170, 180), anchor="mm")
+    hd.text((86, 20), "ΟΜΑΔΑ", font=f_lab, fill=(150, 170, 180), anchor="lm")
+    tag_txt = s.get("tag", "ΒΑΘΜΟΛΟΓΙΑ")
+    tf = font(F_XB_I, 40)
+    tw = int(ImageDraw.Draw(Image.new("L", (1, 1))).textlength(tag_txt, font=tf)) + 60
+    tag = Image.new("RGBA", (tw + 20, 60), (0, 0, 0, 0))
+    para(ImageDraw.Draw(tag), (0, 0), tw, 56, 14, YELLOW)
+    ImageDraw.Draw(tag).text((tw / 2 + 4, 28), tag_txt, font=tf, fill=INK, anchor="mm")
+    keys = [[[_norm(t) for t in seq.split()] for seq in r.get("keys", [r["team"]])] for r in s["table"]]
+    return dict(rows=rows, head=head, tag=tag, keys=keys, RW=RW, RH=RH)
+
+def table_highlights(T, words, t, hold=1.8):
+    """Rows whose team is being said (longest key match wins, so «Ομόνοια 29Μ» ≠ «Ομόνοια»)."""
+    hl = set(); ws = [_norm(w[2]) for w in words]
+    for i, (a, b, w) in enumerate(words):
+        if not (a - 0.05 <= t <= a + hold): continue
+        best, blen = None, 0
+        for ri, seqs in enumerate(T["keys"]):
+            for seq in seqs:
+                if len(seq) > blen and all(i + j < len(ws) and ws[i + j].startswith(seq[j]) for j in range(len(seq))):
+                    best, blen = ri, len(seq)
+        if best is not None:
+            # a shorter key must not steal a word that starts a longer match one word earlier
+            hl.add(best)
+    return hl
+
+def draw_table(img, T, t, y0, hl=frozenset(), reveal=True):
+    x0 = (W - T["RW"]) // 2
+    img.alpha_composite(T["tag"], (x0, y0))
+    img.alpha_composite(T["head"], (x0, y0 + 64))
+    y = y0 + 64 + 42
+    for i, (normal, high) in enumerate(T["rows"]):
+        p = ease((t - 0.15 - i * 0.06) / 0.3) if reveal else 1.0
+        if p > 0:
+            im = high if i in hl else normal
+            dx = int(W * (1 - p))
+            if i in hl:
+                place(img, im, x0 + T["RW"] / 2 + dx, y + T["RH"] / 2, 1.025)
+            else:
+                img.alpha_composite(im, (x0 + dx, y))
+        y += T["RH"] + 4
+    return y
+
 def draw_caption(img, chunk, t):
     if not chunk: return
     d = ImageDraw.Draw(img)
@@ -919,7 +995,9 @@ def main():
 
     layers = []
     for kind, s in segments:
-        if kind == "recap":
+        if kind == "recap" and len(cfg["stories"]) == 1 and cfg["stories"][0].get("type") == "table":
+            layers.append([None, {"table": table_prerender(cfg["stories"][0]), "recap": True}])
+        elif kind == "recap":
             rows = [story_layer(st, rnd, compact=True, body=len(cfg["stories"]) <= 4) for st in cfg["stories"]]
             avail = 1560 - TOP - 6 * len(rows)
             tot = sum(r.height for r in rows)
@@ -934,6 +1012,8 @@ def main():
         elif kind == "hook":
             layers.append([story_layer(s, rnd, body=False, size=int(s.get("size", 150))),
                            hook_background(os.path.join(HERE, s["image"]) if s.get("image") else None)])
+        elif s.get("type") == "table":
+            layers.append([None, {"table": table_prerender(s)}])
         else:
             img_path = os.path.join(HERE, s["image"]) if s.get("image") else None
             if img_path and os.path.exists(img_path):
@@ -942,6 +1022,12 @@ def main():
                 layers.append([story_layer(s, rnd), None])
 
     FCARD = follow_card(cfg) if FOLLOW else None
+    for kind_, s_ in segments:
+        if kind_ == "story" and s_.get("type") == "table" and cfg.get("table_still"):
+            still = base.copy(); still.alpha_composite(title, ((W - title.width) // 2, TITLE_Y))
+            draw_table(still, table_prerender(s_), 99, TOP - 20, reveal=False)
+            still.convert("RGB").save(cfg["table_still"] if os.path.isabs(cfg["table_still"]) else os.path.join(os.path.dirname(out), cfg["table_still"]), quality=95)
+            print("still:", cfg["table_still"])
     video = os.path.join(tmp, "video.mp4")
     proc = subprocess.Popen(["ffmpeg", "-y", "-loglevel", "error", "-f", "rawvideo", "-pix_fmt", "rgba",
                              "-s", f"{W}x{H}", "-r", str(FPS), "-i", "-", "-c:v", "libx264", "-preset", "medium",
@@ -991,7 +1077,14 @@ def main():
             else:
                 img.alpha_composite(title, ((W - title.width) // 2, TITLE_Y))
             area_top = TOP - 20
-            if rows is None:
+            if isinstance(rows, dict) and rows.get("table") is not None:
+                if rows.get("recap"):
+                    draw_table(img, rows["table"], t, TOP - 20, reveal=False)
+                    if FOLLOW and FT:
+                        draw_follow(img, t, FCARD, FT, CY=int(cfg.get("follow", {}).get("y", 900)))
+                else:
+                    draw_table(img, rows["table"], t, TOP - 20, table_highlights(rows["table"], words, t))
+            elif rows is None:
                 p = ease(t / 0.4)
                 img.alpha_composite(layer, (int(-W * (1 - p)), area_top + 20))
             elif isinstance(rows, dict):  # story with photo: framed photo + headline panel
@@ -1016,7 +1109,7 @@ def main():
                     y += r.height + 6
                 if FOLLOW and FT:
                     draw_follow(img, t, FCARD, FT, CY=int(cfg.get("follow", {}).get("y", 900)))
-            if not isinstance(rows, list):
+            if kind != "recap":
                 cur = next((c for c in caps if c[0][0] - 0.05 <= t <= c[-1][1] + 0.25), None)
                 draw_caption(img, cur, t)
             proc.stdin.write(img.tobytes())
