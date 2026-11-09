@@ -765,6 +765,32 @@ def loudnorm(src, dst, target=-13.0, tp=-1.0):
     subprocess.run(["ffmpeg", "-y", "-loglevel", "error", "-i", src, "-af", af, "-ar", "44100", "-ac", "1", dst], check=True)
     return dst
 
+# ---------------------------------------------------------------- script check (flow & pauses)
+KNOWN_WORDS = {"ΑΠΟΕΛ", "ΑΕΚ", "ΑΕΛ", "ΕΝΥ", "ΚΟΠ", "ΟΦΗ", "ΠΑΟΚ", "ΑΕΚ"}
+
+def lint_voice(cfg, pron):
+    """Warn about things in the voice text that cause odd pauses, choppy flow or bad pronunciation."""
+    parts = ([("hook", cfg["hook"])] if cfg.get("hook") else []) + [("intro", cfg["intro"])] + \
+            [(f"story {i + 1}", s) for i, s in enumerate(cfg["stories"])] + [("outro", cfg["outro"])]
+    out = []
+    for name, p in parts:
+        v = p.get("voice", "")
+        def warn(msg): out.append(f"[{name}] {msg}")
+        if re.search(r"[;?;]", v): warn("έχει ερώτηση: γράψ' την ως δήλωση/θαυμαστικό")
+        if re.search(r"\d", v): warn("έχει ψηφία: γράψε τους αριθμούς/ώρες ολογράφως")
+        if re.search(r"[«»()\[\]:/–—\"]", v): warn("έχει «» ( ) : – / ή εισαγωγικά, που φέρνουν περίεργες παύσεις")
+        if re.search(r"[A-Za-z]{2,}", v): warn("έχει λατινικούς χαρακτήρες: γράψ' τους όπως προφέρονται στα ελληνικά")
+        for ab in set(re.findall(r"\b[Α-ΩΆ-Ώ]{2,5}\b", v)):
+            if ab not in pron and ab not in KNOWN_WORDS: warn(f"συντομογραφία «{ab}»: πρόσθεσέ τη στο pronunciations.json")
+        for snt in re.findall(r"[^.!;?…]+[.!;?…]*", v):
+            words = snt.split()
+            if len(words) > 18: warn(f"μεγάλη πρόταση ({len(words)} λέξεις): «{snt.strip()[:40]}…»")
+            if snt.count(",") >= 3: warn(f"πολλά κόμματα σε μία πρόταση: «{snt.strip()[:40]}…»")
+            if 0 < len(words) <= 2 and not snt.strip().endswith("!"): warn(f"πολύ κοφτή πρόταση: «{snt.strip()}»")
+    hook = cfg.get("hook", {}).get("voice", "")
+    if hook and len(hook.split()) > 14: out.append("[hook] πάνω από 14 λέξεις: το hook πρέπει να «χτυπάει» στα 2-3 δευτερόλεπτα")
+    return out
+
 def draw_caption(img, chunk, t):
     if not chunk: return
     d = ImageDraw.Draw(img)
@@ -795,6 +821,8 @@ def main():
     tmp = tempfile.mkdtemp()
 
     pron = load_pronunciations(cfg)
+    for w in lint_voice(cfg, pron):
+        print("⚠️  κείμενο:", w)
     intro = cfg["intro"]
     intro_video = os.path.join(HERE, intro["video"]) if intro.get("video") else None
     hook = cfg.get("hook")
