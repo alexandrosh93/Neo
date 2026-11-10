@@ -39,6 +39,10 @@ Reels (9:16) με τα νέα του κυπριακού ποδοσφαίρου �
   μοντέλο `eleven_multilingual_v2`). Δίνει ακριβείς χρόνους λέξεων για τους υπότιτλους· κενά > 0,34″ ανάμεσα σε λέξεις κόβονται (`max_pause`).
   Χρειάζεται πληρωμένο πακέτο ElevenLabs (Starter+): στο δωρεάν οι φωνές της βιβλιοθήκης δεν δουλεύουν μέσω API.
   Το κλειδί (`xi-api-key`) το βάζει ο proxy του environment. Αν το ElevenLabs αποτύχει, **όλο** το reel βγαίνει με Νέστορα.
+- ElevenLabs = **μία λήψη**: όλο το κείμενο σε ένα request (όπως στο site) και κόβεται στα slides με τους χρόνους
+  των λέξεων. Ο ήχος μένει φυσικός: χωρίς συμπίεση και κόψιμο παύσεων, μόνο ένταση στα -14 LUFS (`elevenlabs_loudness`).
+  Μοντέλο/ρυθμίσεις ίδια με του site: `elevenlabs_model`, `elevenlabs_settings` (stability, similarity_boost, style,
+  use_speaker_boost, speed).
 - Εφεδρική φωνή:
 - Azure AI Speech (επίσημο, δωρεάν F0), resource `kouponaki-tts`, region `northeurope`, φωνή **el-GR-NestorasNeural**, rate **+8%**.
   Το κλειδί το βάζει ο proxy του cloud environment (Default). Αν πέσει το Azure, το build γυρίζει σε edge-tts.

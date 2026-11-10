@@ -242,6 +242,63 @@ def tts_elevenlabs(text, cfg, wav, tmp):
         f.setnchannels(1); f.setsampwidth(2); f.setframerate(fs); f.writeframes((y * 32767).astype(np.int16).tobytes())
     return new
 
+def _el_words(chars, st, en):
+    words, cur = [], []
+    for ch, s0, e0 in list(zip(chars, st, en)) + [(" ", 0, 0)]:
+        if ch.isspace():
+            letters = [c for c in cur if c[0].isalnum()]
+            if letters:
+                words.append((letters[0][1], letters[-1][2], re.sub(r"^[^\w]+|[^\w]+$", "", "".join(c[0] for c in cur))))
+            cur = []
+        else:
+            cur.append((ch, s0, e0))
+    return words
+
+def elevenlabs_one_take(texts, cfg, tmp):
+    """The whole reel in ONE ElevenLabs request (exactly like pasting the script on the site), then cut
+    into the slide segments with the word timestamps. Returns [(wav_path, words)] per segment."""
+    import base64, ssl, urllib.request, urllib.error
+    import numpy as np, wave as wv
+    vid = cfg.get("elevenlabs_voice")
+    if not vid: raise VoiceEngineError("no elevenlabs_voice in script.json")
+    full = "\n\n".join(t.strip() for t in texts)
+    body = {"text": full, "model_id": cfg.get("elevenlabs_model", "eleven_multilingual_v2")}
+    if cfg.get("elevenlabs_settings"): body["voice_settings"] = cfg["elevenlabs_settings"]
+    req = urllib.request.Request(
+        f"https://api.elevenlabs.io/v1/text-to-speech/{vid}/with-timestamps?output_format=mp3_44100_192",
+        data=json.dumps(body).encode(), method="POST",
+        headers={"xi-api-key": os.environ.get("ELEVENLABS_API_KEY", "proxy-injected"), "Content-Type": "application/json"})
+    ctx = ssl.create_default_context(cafile=os.environ.get("SSL_CERT_FILE") or None)
+    try:
+        with urllib.request.urlopen(req, timeout=240, context=ctx) as r:
+            d = json.loads(r.read())
+    except urllib.error.HTTPError as e:
+        raise VoiceEngineError(f"ElevenLabs {e.code}: {e.read()[:200].decode(errors='ignore')}")
+    except Exception as e:
+        raise VoiceEngineError(f"ElevenLabs: {e}")
+    mp3 = os.path.join(tmp, "el_full.mp3"); open(mp3, "wb").write(base64.b64decode(d["audio_base64"]))
+    raw = os.path.join(tmp, "el_full.wav")
+    subprocess.run(["ffmpeg", "-y", "-loglevel", "error", "-i", mp3, "-ar", "44100", "-ac", "1", raw], check=True)
+    x, fs = _read_wav(raw)
+    al = d.get("alignment") or d.get("normalized_alignment") or {}
+    words = _el_words(al.get("characters", []), al.get("character_start_times_seconds", []), al.get("character_end_times_seconds", []))
+    counts = [len([w for w in t.split() if re.search(r"\w", w)]) for t in texts]
+    if sum(counts) != len(words):
+        raise VoiceEngineError(f"ElevenLabs alignment: {len(words)} words vs {sum(counts)} in the script")
+    out, k = [], 0
+    for n, c in enumerate(counts):
+        seg = words[k:k + c]; k += c
+        prev_end = words[k - c - 1][1] if k - c > 0 else 0.0
+        next_start = words[k][0] if k < len(words) else len(x) / fs
+        a0 = max(prev_end + 0.02, seg[0][0] - 0.05); b0 = min(next_start - 0.02, seg[-1][1] + 0.12)
+        y = x[int(a0 * fs):int(b0 * fs)]
+        p = os.path.join(tmp, f"el_seg{n}.wav")
+        with wv.open(p, "wb") as f:
+            f.setnchannels(1); f.setsampwidth(2); f.setframerate(fs)
+            f.writeframes((np.clip(y, -1, 1) * 32767).astype(np.int16).tobytes())
+        out.append((p, [(a - a0, b - a0, w) for a, b, w in seg]))
+    return out
+
 def tts(text, cfg, wav, tmp):
     if cfg.get("engine") == "elevenlabs":
         return tts_elevenlabs(text, cfg, wav, tmp), f"elevenlabs ({cfg.get('elevenlabs_voice')})"
@@ -816,12 +873,12 @@ def _lufs(path, peak=False):
     m = json.loads(r.stderr[r.stderr.rindex("{"):r.stderr.rindex("}") + 1])
     return (float(m["input_i"]), float(m["input_tp"])) if peak else float(m["input_i"])
 
-def loudnorm(src, dst, target=-13.0, tp=-1.0):
+def loudnorm(src, dst, target=-13.0, tp=-1.0, compress=True):
     """Voice-over compression, then gain + peak limiter until the soundtrack sits at `target` LUFS
     (social apps play around -14). Works for any voice, also ones with sharp peaks."""
     pre = dst + ".pre.wav"
     subprocess.run(["ffmpeg", "-y", "-loglevel", "error", "-i", src, "-af",
-                    "acompressor=threshold=-24dB:ratio=4:attack=4:release=80:makeup=4dB",
+                    "acompressor=threshold=-24dB:ratio=4:attack=4:release=80:makeup=4dB" if compress else "anull",
                     "-ar", "44100", "-ac", "1", pre], check=True)
     lim_db = tp - 1.0                   # sample-peak ceiling; true peaks between samples sit higher
     gain = target - _lufs(pre)
@@ -1015,10 +1072,17 @@ def main():
     def synth_all(cfg):
         FT = None
         audio = []
+        take = None
+        if cfg.get("engine") == "elevenlabs" and cfg.get("elevenlabs_one_take", True):
+            take = elevenlabs_one_take([to_spoken(s["voice"], pron) for _, s in segments], cfg, tmp)
         for i, (kind, s) in enumerate(segments):
             wav = os.path.join(tmp, f"v{i}.wav")
             spoken = to_spoken(s["voice"], pron)
-            words, engine = tts(spoken, cfg, wav, tmp)
+            if take:
+                shutil.copy(take[i][0], wav); words = take[i][1]
+                engine = f"elevenlabs one take ({cfg.get('elevenlabs_voice')}, {cfg.get('elevenlabs_model', 'eleven_multilingual_v2')})"
+            else:
+                words, engine = tts(spoken, cfg, wav, tmp)
             words = question_intonation(wav, words, spoken)
             words = restore_words(words, pron)
             if kind == "intro" and intro_video:
@@ -1220,7 +1284,9 @@ def main():
             fh.write(f"file '{p}'\n")
     voice = os.path.join(tmp, "voice.wav")
     subprocess.run(["ffmpeg", "-y", "-loglevel", "error", "-f", "concat", "-safe", "0", "-i", lst, voice], check=True)
-    voice = loudnorm(voice, os.path.join(tmp, "voice_loud.wav"), float(cfg.get("loudness", -13)))
+    natural = cfg.get("engine") == "elevenlabs" and not cfg.get("compress_voice", False)
+    voice = loudnorm(voice, os.path.join(tmp, "voice_loud.wav"),
+                     float(cfg.get("elevenlabs_loudness", -14) if natural else cfg.get("loudness", -13)), compress=not natural)
     subprocess.run(["ffmpeg", "-y", "-loglevel", "error", "-i", video, "-i", voice, "-c:v", "copy",
                     "-c:a", "aac", "-b:a", "192k", "-shortest", "-movflags", "+faststart", out], check=True)
     shutil.rmtree(tmp)
