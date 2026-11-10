@@ -265,7 +265,7 @@ def elevenlabs_one_take(texts, cfg, tmp):
     body = {"text": full, "model_id": cfg.get("elevenlabs_model", "eleven_multilingual_v2")}
     if cfg.get("elevenlabs_settings"): body["voice_settings"] = cfg["elevenlabs_settings"]
     req = urllib.request.Request(
-        f"https://api.elevenlabs.io/v1/text-to-speech/{vid}/with-timestamps?output_format=mp3_44100_192",
+        f"https://api.elevenlabs.io/v1/text-to-speech/{vid}/with-timestamps?output_format={cfg.get("elevenlabs_format", "mp3_44100_128")}",
         data=json.dumps(body).encode(), method="POST",
         headers={"xi-api-key": os.environ.get("ELEVENLABS_API_KEY", "proxy-injected"), "Content-Type": "application/json"})
     ctx = ssl.create_default_context(cafile=os.environ.get("SSL_CERT_FILE") or None)
