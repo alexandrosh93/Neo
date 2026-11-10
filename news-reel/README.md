@@ -44,7 +44,7 @@ python3 build.py script.json reel.mp4
 Στο `script.json`:
 - `"engine": "azure"` – επίσημο Azure AI Speech (δωρεάν F0, 500.000 χαρακτήρες/μήνα), resource `kouponaki-tts`, `"region": "northeurope"`.
   Στο cloud session το κλειδί το βάζει αυτόματα ο proxy· τοπικά όρισε `AZURE_SPEECH_KEY`.
-- `"voice"`: `el-GR-NestorasNeural` (rate `+11%`) ή `de-DE-FlorianMultilingualNeural` (rate `+0%`).
+- `"voice"`: `el-GR-NestorasNeural` (rate `+8%`) ή `de-DE-FlorianMultilingualNeural` (rate `+0%`).
 - Κάθε πρόταση συντίθεται χωριστά με φυσικές παύσεις· οι ερωτήσεις παίρνουν ανοδικό τόνο (pyworld).
 - Αν το Azure αποτύχει, πέφτει αυτόματα σε edge-tts (Νέστορας, `edge_rate`).
 

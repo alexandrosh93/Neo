@@ -34,7 +34,7 @@ Reels (9:16) με τα νέα του κυπριακού ποδοσφαίρου �
 - Το build τρέχει αυτόματο έλεγχο (`⚠️ κείμενο:`). **Πριν σταλεί το βίντεο πρέπει να έχει 0 προειδοποιήσεις.**
 
 ## 2. Φωνή και ήχος
-- Azure AI Speech (επίσημο, δωρεάν F0), resource `kouponaki-tts`, region `northeurope`, φωνή **el-GR-NestorasNeural**, rate **+11%**.
+- Azure AI Speech (επίσημο, δωρεάν F0), resource `kouponaki-tts`, region `northeurope`, φωνή **el-GR-NestorasNeural**, rate **+8%**.
   Το κλειδί το βάζει ο proxy του cloud environment (Default). Αν πέσει το Azure, το build γυρίζει σε edge-tts.
 - Παύσεις (αυτόματες): ~270ms μετά από «!», ~320ms μετά από «.», κόμματα έως 260ms, αλλαγή θέματος ~450ms.
   Μετά το build μετράμε τις σιωπές: όλες πρέπει να είναι ≤ ~460ms.
