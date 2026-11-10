@@ -66,10 +66,12 @@
     "size": 180,
     "voice": "Πρωτόγνωρο! Και οι δύο προπονητές του ίδιου ματς έμειναν εκτός πάγκου!"
   },
-  "engine": "azure",
+  "engine": "elevenlabs",
   "region": "northeurope",
   "edge_rate": "+22%",
   "loudness": -13,
   "date": "2026-11-10",
-  "carousel_question": "Ποιος θα ήταν ο ιδανικός προπονητής για τη Νέα Σαλαμίνα;"
+  "carousel_question": "Ποιος θα ήταν ο ιδανικός προπονητής για τη Νέα Σαλαμίνα;",
+  "elevenlabs_voice": "5DAtyqt3LGjv9jkjNVFd",
+  "elevenlabs_model": "eleven_multilingual_v2"
 }

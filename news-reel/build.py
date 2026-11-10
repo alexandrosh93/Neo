@@ -179,7 +179,67 @@ def tts_azure(text, cfg, wav, tmp):
     subprocess.run(["ffmpeg", "-y", "-loglevel", "error", "-i", raw, "-ar", "44100", "-ac", "1", wav], check=True)
     return words
 
+# ---- ElevenLabs ---------------------------------------------------------------
+class VoiceEngineError(Exception):
+    pass
+
+def tts_elevenlabs(text, cfg, wav, tmp):
+    """ElevenLabs TTS with character timestamps -> exact word timings for the captions.
+    The key is injected by the session proxy for api.elevenlabs.io (locally: ELEVENLABS_API_KEY)."""
+    import base64, ssl, urllib.request, urllib.error
+    import numpy as np
+    vid = cfg.get("elevenlabs_voice")
+    if not vid: raise VoiceEngineError("no elevenlabs_voice in script.json")
+    body = {"text": text, "model_id": cfg.get("elevenlabs_model", "eleven_multilingual_v2")}
+    if cfg.get("elevenlabs_settings"): body["voice_settings"] = cfg["elevenlabs_settings"]
+    req = urllib.request.Request(
+        f"https://api.elevenlabs.io/v1/text-to-speech/{vid}/with-timestamps?output_format=mp3_44100_128",
+        data=json.dumps(body).encode(), method="POST",
+        headers={"xi-api-key": os.environ.get("ELEVENLABS_API_KEY", "proxy-injected"), "Content-Type": "application/json"})
+    ctx = ssl.create_default_context(cafile=os.environ.get("SSL_CERT_FILE") or None)
+    try:
+        with urllib.request.urlopen(req, timeout=120, context=ctx) as r:
+            d = json.loads(r.read())
+    except urllib.error.HTTPError as e:
+        raise VoiceEngineError(f"ElevenLabs {e.code}: {e.read()[:200].decode(errors='ignore')}")
+    except Exception as e:
+        raise VoiceEngineError(f"ElevenLabs: {e}")
+    mp3 = os.path.join(tmp, "el.mp3")
+    open(mp3, "wb").write(base64.b64decode(d["audio_base64"]))
+    raw = os.path.join(tmp, "el_raw.wav")
+    subprocess.run(["ffmpeg", "-y", "-loglevel", "error", "-i", mp3, "-ar", "44100", "-ac", "1", raw], check=True)
+    al = d.get("alignment") or d.get("normalized_alignment") or {}
+    chars, st, en = al.get("characters", []), al.get("character_start_times_seconds", []), al.get("character_end_times_seconds", [])
+    words, cur, a = [], "", None
+    for ch, s0, e0 in zip(chars, st, en):
+        if ch.isspace():
+            if cur: words.append((a, last, cur)); cur = ""
+            continue
+        if not cur: a = s0
+        cur += ch; last = e0
+    if cur: words.append((a, last, cur))
+    words = [(a, b, re.sub(r"^[^\w]+|[^\w]+$", "", w)) for a, b, w in words]
+    words = [w for w in words if w[2]]
+    # keep pauses human: no silence between words longer than max_pause
+    x, fs = _read_wav(raw)
+    mx = float(cfg.get("max_pause", 0.42))
+    out, shift, pos, new = [], 0.0, 0, []
+    for i, (a, b, w) in enumerate(words):
+        if i and a - words[i - 1][1] > mx:
+            cut_a = int((words[i - 1][1] + mx / 2) * fs); cut_b = int((a - mx / 2) * fs)
+            if cut_b > cut_a:
+                out.append(x[pos:cut_a]); pos = cut_b; shift += (cut_b - cut_a) / fs
+        new.append((a - shift, b - shift, w))
+    out.append(x[pos:])
+    y = np.clip(np.concatenate(out), -1, 1)
+    import wave as wv
+    with wv.open(wav, "wb") as f:
+        f.setnchannels(1); f.setsampwidth(2); f.setframerate(fs); f.writeframes((y * 32767).astype(np.int16).tobytes())
+    return new
+
 def tts(text, cfg, wav, tmp):
+    if cfg.get("engine") == "elevenlabs":
+        return tts_elevenlabs(text, cfg, wav, tmp), f"elevenlabs ({cfg.get('elevenlabs_voice')})"
     if cfg.get("engine", "edge") == "azure":
         try:
             return tts_azure(text, cfg, wav, tmp), f"azure ({cfg.get('voice')})"
@@ -942,28 +1002,36 @@ def main():
         outro["voice"] = outro["voice"].rstrip() + " Κάνε φόλοου για να μη χάνεις τίποτα!"
     segments = ([("hook", hook)] if hook else []) + [("intro", intro)] + \
                [("story", s) for s in cfg["stories"]] + [("recap", outro)]
-    FT = None
-    audio = []
-    for i, (kind, s) in enumerate(segments):
-        wav = os.path.join(tmp, f"v{i}.wav")
-        spoken = to_spoken(s["voice"], pron)
-        words, engine = tts(spoken, cfg, wav, tmp)
-        words = question_intonation(wav, words, spoken)
-        words = restore_words(words, pron)
-        if kind == "intro" and intro_video:
-            lead = float(intro.get("voice_at", 1.5))
-            dur = max(float(intro.get("min_length", 3.5)), duration(wav) + lead + 0.3)
-            dur = min(dur, duration(intro_video) - intro_start)
-        elif kind == "hook":
-            lead = 0.05
-            dur = duration(wav) + lead + float(s.get("hold", 0.15))
-        else:
-            lead = 0.15
-            dur = duration(wav) + lead + (1.2 if i == len(segments) - 1 else 0.12)
-        if kind == "recap" and FOLLOW:
-            FT = follow_times([(a + lead, b + lead, w) for a, b, w in words])
-            dur = max(dur, FT["tOn"] + 1.9)
-        audio.append((wav, [(a + lead, b + lead, w) for a, b, w in words], dur, lead))
+    def synth_all(cfg):
+        FT = None
+        audio = []
+        for i, (kind, s) in enumerate(segments):
+            wav = os.path.join(tmp, f"v{i}.wav")
+            spoken = to_spoken(s["voice"], pron)
+            words, engine = tts(spoken, cfg, wav, tmp)
+            words = question_intonation(wav, words, spoken)
+            words = restore_words(words, pron)
+            if kind == "intro" and intro_video:
+                lead = float(intro.get("voice_at", 1.5))
+                dur = max(float(intro.get("min_length", 3.5)), duration(wav) + lead + 0.3)
+                dur = min(dur, duration(intro_video) - intro_start)
+            elif kind == "hook":
+                lead = 0.05
+                dur = duration(wav) + lead + float(s.get("hold", 0.15))
+            else:
+                lead = 0.15
+                dur = duration(wav) + lead + (1.2 if i == len(segments) - 1 else 0.12)
+            if kind == "recap" and FOLLOW:
+                FT = follow_times([(a + lead, b + lead, w) for a, b, w in words])
+                dur = max(dur, FT["tOn"] + 1.9)
+            audio.append((wav, [(a + lead, b + lead, w) for a, b, w in words], dur, lead))
+        return audio, FT, engine
+    try:
+        audio, FT, engine = synth_all(cfg)
+    except VoiceEngineError as e:
+        print("⚠️  ElevenLabs δεν δούλεψε, όλο το reel με Νέστορα (Azure):", e)
+        cfg = dict(cfg, engine="azure")
+        audio, FT, engine = synth_all(cfg)
     print("voice engine:", engine)
 
     # --- static layers

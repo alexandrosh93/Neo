@@ -69,3 +69,9 @@ python3 build.py script.json reel.mp4
 
 Η φωνή περνάει από ελαφριά συμπίεση (στυλ voiceover) και όλο το soundtrack κανονικοποιείται στα **-13 LUFS** (peak -1 dB), πιο δυνατά από το standard
 των social (-14). Ρύθμιση: `"loudness"` στο `script.json`.
+
+## ElevenLabs
+
+`"engine": "elevenlabs"`, `"elevenlabs_voice": "<Voice ID>"`, προαιρετικά `"elevenlabs_model"` και `"elevenlabs_settings"`.
+Στο cloud session το κλειδί το βάζει ο proxy· τοπικά όρισε `ELEVENLABS_API_KEY`. Αν αποτύχει (π.χ. δωρεάν πακέτο),
+όλο το reel βγαίνει με τον Νέστορα (Azure), ώστε να μην ανακατεύονται φωνές.
