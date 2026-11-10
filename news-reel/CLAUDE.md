@@ -34,7 +34,8 @@ Reels (9:16) με τα νέα του κυπριακού ποδοσφαίρου �
 - Το build τρέχει αυτόματο έλεγχο (`⚠️ κείμενο:`). **Πριν σταλεί το βίντεο πρέπει να έχει 0 προειδοποιήσεις.**
 
 ## 2. Φωνή και ήχος
-- **Κύρια φωνή: ElevenLabs «Eugene»** (`"engine": "elevenlabs"`, `"elevenlabs_voice": "5DAtyqt3LGjv9jkjNVFd"`,
+- **Κύρια φωνή: ElevenLabs «Alex H»**, κλώνος της φωνής του χρήστη (`"engine": "elevenlabs"`,
+  `"elevenlabs_voice": "ph7fdc8fp13C4spMbl27"`; εναλλακτική: «Eugene» `5DAtyqt3LGjv9jkjNVFd`,
   μοντέλο `eleven_multilingual_v2`). Δίνει ακριβείς χρόνους λέξεων για τους υπότιτλους· κενά > 0,34″ ανάμεσα σε λέξεις κόβονται (`max_pause`).
   Χρειάζεται πληρωμένο πακέτο ElevenLabs (Starter+): στο δωρεάν οι φωνές της βιβλιοθήκης δεν δουλεύουν μέσω API.
   Το κλειδί (`xi-api-key`) το βάζει ο proxy του environment. Αν το ElevenLabs αποτύχει, **όλο** το reel βγαίνει με Νέστορα.
