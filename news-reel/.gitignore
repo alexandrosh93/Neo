@@ -1,3 +1,4 @@
 *.mp4
 photos/
 __pycache__/
+carousel/
