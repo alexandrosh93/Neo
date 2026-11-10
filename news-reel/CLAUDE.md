@@ -36,7 +36,7 @@ Reels (9:16) με τα νέα του κυπριακού ποδοσφαίρου �
 ## 2. Φωνή και ήχος
 - **Κύρια φωνή: ElevenLabs «Alex H»**, κλώνος της φωνής του χρήστη (`"engine": "elevenlabs"`,
   `"elevenlabs_voice": "ph7fdc8fp13C4spMbl27"`; εναλλακτική: «Eugene» `5DAtyqt3LGjv9jkjNVFd`,
-  μοντέλο **`eleven_v4`**, stability **0.53**, similarity **0.74**, mp3 44.1kHz 128kbps — ίδια με το site). Δίνει ακριβείς χρόνους λέξεων για τους υπότιτλους· κενά > 0,34″ ανάμεσα σε λέξεις κόβονται (`max_pause`).
+  μοντέλο **`eleven_v4`**, stability **0.53**, similarity **0.74**, mp3 44.1kHz 128kbps — ίδια με το site). Δίνει ακριβείς χρόνους λέξεων για τους υπότιτλους.
   Χρειάζεται πληρωμένο πακέτο ElevenLabs (Starter+): στο δωρεάν οι φωνές της βιβλιοθήκης δεν δουλεύουν μέσω API.
   Το κλειδί (`xi-api-key`) το βάζει ο proxy του environment. Αν το ElevenLabs αποτύχει, **όλο** το reel βγαίνει με Νέστορα.
 - ElevenLabs = **μία λήψη**: όλο το κείμενο σε ένα request (όπως στο site) και κόβεται στα slides με τους χρόνους
