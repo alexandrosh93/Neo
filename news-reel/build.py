@@ -210,19 +210,20 @@ def tts_elevenlabs(text, cfg, wav, tmp):
     subprocess.run(["ffmpeg", "-y", "-loglevel", "error", "-i", mp3, "-ar", "44100", "-ac", "1", raw], check=True)
     al = d.get("alignment") or d.get("normalized_alignment") or {}
     chars, st, en = al.get("characters", []), al.get("character_start_times_seconds", []), al.get("character_end_times_seconds", [])
-    words, cur, a = [], "", None
-    for ch, s0, e0 in zip(chars, st, en):
+    # words = runs of non-space characters; their times come from the first/last *letter*,
+    # because ElevenLabs gives the pause after «.» or «!» to the punctuation mark
+    words, cur = [], []
+    for ch, s0, e0 in list(zip(chars, st, en)) + [(" ", 0, 0)]:
         if ch.isspace():
-            if cur: words.append((a, last, cur)); cur = ""
-            continue
-        if not cur: a = s0
-        cur += ch; last = e0
-    if cur: words.append((a, last, cur))
-    words = [(a, b, re.sub(r"^[^\w]+|[^\w]+$", "", w)) for a, b, w in words]
-    words = [w for w in words if w[2]]
+            letters = [c for c in cur if c[0].isalnum()]
+            if letters:
+                words.append((letters[0][1], letters[-1][2], re.sub(r"^[^\w]+|[^\w]+$", "", "".join(c[0] for c in cur))))
+            cur = []
+        else:
+            cur.append((ch, s0, e0))
     # keep pauses human: no silence between words longer than max_pause
     x, fs = _read_wav(raw)
-    mx = float(cfg.get("max_pause", 0.42))
+    mx = float(cfg.get("max_pause", 0.34))
     out, shift, pos, new = [], 0.0, 0, []
     for i, (a, b, w) in enumerate(words):
         if i and a - words[i - 1][1] > mx:
@@ -232,6 +233,10 @@ def tts_elevenlabs(text, cfg, wav, tmp):
         new.append((a - shift, b - shift, w))
     out.append(x[pos:])
     y = np.clip(np.concatenate(out), -1, 1)
+    if new:   # trim the silence ElevenLabs leaves at the start/end of every clip
+        a0 = max(0.0, new[0][0] - 0.03); b0 = min(len(y) / fs, new[-1][1] + 0.10)
+        y = y[int(a0 * fs):int(b0 * fs)]
+        new = [(a - a0, b - a0, w) for a, b, w in new]
     import wave as wv
     with wv.open(wav, "wb") as f:
         f.setnchannels(1); f.setsampwidth(2); f.setframerate(fs); f.writeframes((y * 32767).astype(np.int16).tobytes())
@@ -805,28 +810,33 @@ def mix_sfx(path, events):
         f.setnchannels(1); f.setsampwidth(2); f.setframerate(fs)
         f.writeframes((np.clip(y, -1, 1) * 32767).astype(np.int16).tobytes())
 
+def _lufs(path, peak=False):
+    r = subprocess.run(["ffmpeg", "-hide_banner", "-i", path, "-af", "loudnorm=print_format=json", "-f", "null", "-"],
+                       capture_output=True, text=True)
+    m = json.loads(r.stderr[r.stderr.rindex("{"):r.stderr.rindex("}") + 1])
+    return (float(m["input_i"]), float(m["input_tp"])) if peak else float(m["input_i"])
+
 def loudnorm(src, dst, target=-13.0, tp=-1.0):
-    """Voice-over style compression + peak limiting, then two-pass EBU R128 loudness normalisation
-    of the whole soundtrack (social apps play around -14 LUFS)."""
+    """Voice-over compression, then gain + peak limiter until the soundtrack sits at `target` LUFS
+    (social apps play around -14). Works for any voice, also ones with sharp peaks."""
     pre = dst + ".pre.wav"
     subprocess.run(["ffmpeg", "-y", "-loglevel", "error", "-i", src, "-af",
-                    "acompressor=threshold=-20dB:ratio=3:attack=5:release=90:makeup=3dB,"
-                    "alimiter=limit=0.7:attack=3:release=40:level=false", "-ar", "44100", "-ac", "1", pre], check=True)
-    src = pre
-    r = subprocess.run(["ffmpeg", "-hide_banner", "-i", src, "-af",
-                        f"loudnorm=I={target}:TP={tp}:LRA=11:print_format=json", "-f", "null", "-"],
-                       capture_output=True, text=True)
-    try:
-        m = json.loads(r.stderr[r.stderr.rindex("{"):r.stderr.rindex("}") + 1])
-        af = (f"loudnorm=I={target}:TP={tp}:LRA=11:measured_I={m['input_i']}:measured_TP={m['input_tp']}:"
-              f"measured_LRA={m['input_lra']}:measured_thresh={m['input_thresh']}:offset={m['target_offset']}:linear=true")
-    except Exception:
-        af = f"loudnorm=I={target}:TP={tp}:LRA=11"
-    subprocess.run(["ffmpeg", "-y", "-loglevel", "error", "-i", src, "-af", af, "-ar", "44100", "-ac", "1", dst], check=True)
+                    "acompressor=threshold=-24dB:ratio=4:attack=4:release=80:makeup=4dB",
+                    "-ar", "44100", "-ac", "1", pre], check=True)
+    lim_db = tp - 1.0                   # sample-peak ceiling; true peaks between samples sit higher
+    gain = target - _lufs(pre)
+    for _ in range(4):
+        subprocess.run(["ffmpeg", "-y", "-loglevel", "error", "-i", pre, "-af",
+                        f"volume={gain:.2f}dB,alimiter=limit={10 ** (lim_db / 20):.3f}:attack=1:release=60:level=false",
+                        "-ar", "44100", "-ac", "1", dst], check=True)
+        got, peak = _lufs(dst, peak=True)
+        if peak > tp: lim_db -= (peak - tp) + 0.2     # true peak too hot: lower the ceiling
+        elif abs(got - target) <= 0.5: break
+        else: gain += target - got
     return dst
 
 # ---------------------------------------------------------------- script check (flow & pauses)
-KNOWN_WORDS = {"ΑΠΟΕΛ", "ΑΕΚ", "ΑΕΛ", "ΕΝΥ", "ΚΟΠ", "ΟΦΗ", "ΠΑΟΚ", "ΑΕΚ"}
+KNOWN_WORDS = {"ΑΠΟΕΛ", "ΑΕΚ", "ΑΕΛ", "ΕΝΥ", "ΚΟΠ", "ΟΦΗ", "ΠΑΟΚ"}
 
 def lint_voice(cfg, pron):
     """Warn about things in the voice text that cause odd pauses, choppy flow or bad pronunciation."""
