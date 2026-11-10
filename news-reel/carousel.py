@@ -96,19 +96,26 @@ def cover(cfg, rnd, badge):
 def story_slide(s, cfg, rnd, badge):
     img = _bg()
     top = _header(img, rnd, cfg, badge) + 18
-    ph_h = 470
+    lg = _logo(cfg)
+    floor = CH - (lg.height if lg else 0) - 34 - 14          # the paper must end above the logo
+    layer = B.story_layer(s, rnd, body=False, size=96)
+    # fit the body: smaller photo first, then a smaller font if it is still too long
+    lines, bf, lh, ph_h = [], None, 56, 470
+    for size in (44, 40, 36, 33):
+        bf = B.font(B.F_SEMI, size); lh = int(size * 1.27)
+        lines = [ln for p in s.get("body", "").split("\n") for ln in B.wrap(p, bf, 900)] if s.get("body") else []
+        paper_h = lh * len(lines) + 56 + 20 if lines else 0
+        ph_h = min(470, floor - paper_h - 6 - layer.height + 105 - top)
+        if ph_h >= 330: break
+    ph_h = max(300, ph_h)
     if s.get("image") and os.path.exists(os.path.join(B.HERE, s["image"])):
         ph = _cover_photo(os.path.join(B.HERE, s["image"]), ph_h)
         ph.alpha_composite(_fade(ph_h, top=30, bottom=180, alpha=170))
         img.alpha_composite(ph, (0, top))
-    layer = B.story_layer(s, rnd, body=False, size=96)
     ly = top + ph_h - 105
     img.alpha_composite(layer, (0, ly))
-    if s.get("body"):
-        bf = B.font(B.F_SEMI, 44); bw = 900
-        lines = [ln for p in s["body"].split("\n") for ln in B.wrap(p, bf, bw)]
-        lh = 56
-        paper = B.paper((bw + 60, lh * len(lines) + 56), rnd)
+    if lines:
+        paper = B.paper((960, lh * len(lines) + 56), rnd)
         pd = ImageDraw.Draw(paper)
         for i, ln in enumerate(lines):
             pd.text((50, 20 + 28 + i * lh), ln, font=bf, fill=B.INK)
