@@ -264,24 +264,57 @@ def elevenlabs_one_take(texts, cfg, tmp):
     full = "\n\n".join(t.strip() for t in texts)
     body = {"text": full, "model_id": cfg.get("elevenlabs_model", "eleven_multilingual_v2")}
     if cfg.get("elevenlabs_settings"): body["voice_settings"] = cfg["elevenlabs_settings"]
-    req = urllib.request.Request(
-        f"https://api.elevenlabs.io/v1/text-to-speech/{vid}/with-timestamps?output_format={cfg.get("elevenlabs_format", "mp3_44100_128")}",
-        data=json.dumps(body).encode(), method="POST",
-        headers={"xi-api-key": os.environ.get("ELEVENLABS_API_KEY", "proxy-injected"), "Content-Type": "application/json"})
-    ctx = ssl.create_default_context(cafile=os.environ.get("SSL_CERT_FILE") or None)
-    try:
-        with urllib.request.urlopen(req, timeout=240, context=ctx) as r:
-            d = json.loads(r.read())
-    except urllib.error.HTTPError as e:
-        raise VoiceEngineError(f"ElevenLabs {e.code}: {e.read()[:200].decode(errors='ignore')}")
-    except Exception as e:
-        raise VoiceEngineError(f"ElevenLabs: {e}")
+    import hashlib
+    fmt = cfg.get("elevenlabs_format", "mp3_44100_128")
+    cpath = os.path.join(HERE, ".cache", "el_" + hashlib.sha256((json.dumps(body, sort_keys=True) + vid + fmt).encode()).hexdigest()[:20] + ".json")
+    use_cache = cfg.get("elevenlabs_cache", True)
+    d = None
+    if use_cache and os.path.exists(cpath):
+        d = json.load(open(cpath, encoding="utf-8")); print("   ElevenLabs: ίδια λήψη από την cache (0 credits)")
+    if d is None:
+        req = urllib.request.Request(
+            f"https://api.elevenlabs.io/v1/text-to-speech/{vid}/with-timestamps?output_format={fmt}",
+            data=json.dumps(body).encode(), method="POST",
+            headers={"xi-api-key": os.environ.get("ELEVENLABS_API_KEY", "proxy-injected"), "Content-Type": "application/json"})
+        ctx = ssl.create_default_context(cafile=os.environ.get("SSL_CERT_FILE") or None)
+        try:
+            with urllib.request.urlopen(req, timeout=240, context=ctx) as r:
+                d = json.loads(r.read())
+        except urllib.error.HTTPError as e:
+            raise VoiceEngineError(f"ElevenLabs {e.code}: {e.read()[:200].decode(errors='ignore')}")
+        except Exception as e:
+            raise VoiceEngineError(f"ElevenLabs: {e}")
+        if use_cache:
+            os.makedirs(os.path.dirname(cpath), exist_ok=True); json.dump(d, open(cpath, "w", encoding="utf-8"))
     mp3 = os.path.join(tmp, "el_full.mp3"); open(mp3, "wb").write(base64.b64decode(d["audio_base64"]))
     raw = os.path.join(tmp, "el_full.wav")
     subprocess.run(["ffmpeg", "-y", "-loglevel", "error", "-i", mp3, "-ar", "44100", "-ac", "1", raw], check=True)
     x, fs = _read_wav(raw)
     al = d.get("alignment") or d.get("normalized_alignment") or {}
     words = _el_words(al.get("characters", []), al.get("character_start_times_seconds", []), al.get("character_end_times_seconds", []))
+    # Double consonants are spelled «Πικ-κής» for the voice. The voice makes that closure short, so the
+    # silence of the stop is stretched to `gemination_ms` (a real geminate: ~120-150 ms; a single κ ≈ 30 ms).
+    target = int(float(cfg.get("gemination_ms", 120)) / 1000 * fs)
+    hop = int(0.005 * fs); pieces, pos, shift, fixed = [], 0, 0.0, []
+    for a_, b_, w_ in words:
+        extra = 0
+        if "-" in w_ and int(a_ * fs) < len(x):
+            seg = x[int(a_ * fs):int(b_ * fs)]
+            rms = np.array([np.sqrt(np.mean(seg[i:i + hop] ** 2)) for i in range(0, max(1, len(seg) - hop), hop)])
+            if len(rms) > 6:
+                thr = rms.max() * 0.07; best = run = 0; best_at = 0
+                for j, r_ in enumerate(rms[2:-2], start=2):
+                    run = run + 1 if r_ < thr else 0
+                    if run > best: best, best_at = run, j - run + 1
+                before = best * hop
+                if before < target:
+                    extra = target - before
+                    cut = int(a_ * fs) + best_at * hop + before // 2
+                    pieces.append(x[pos:cut]); pieces.append(np.zeros(extra)); pos = cut
+                print(f"   διπλό σύμφωνο «{w_}»: κλείσιμο {before * 1000 // fs} ms → {max(before, target) * 1000 // fs} ms (απλό κάπα ≈ 30 ms)")
+        fixed.append((a_ + shift, b_ + shift + extra / fs, w_)); shift += extra / fs
+    if pieces:
+        pieces.append(x[pos:]); x = np.concatenate(pieces); words = fixed
     counts = [len([w for w in t.split() if re.search(r"\w", w)]) for t in texts]
     if sum(counts) != len(words):
         raise VoiceEngineError(f"ElevenLabs alignment: {len(words)} words vs {sum(counts)} in the script")
