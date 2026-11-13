@@ -1028,6 +1028,44 @@ def table_prerender(s):
     keys = [[[_norm(t) for t in seq.split()] for seq in r.get("keys", [r["team"]])] for r in s["table"]]
     return dict(rows=rows, head=head, tag=tag, keys=keys, RW=RW, RH=RH)
 
+def draw_prerender(s):
+    """Cup draw («κλήρωση»): one row per tie, home – away, same dict shape as table_prerender so
+    draw_table/table_highlights work. A row lights up while the voice names one of its teams."""
+    RW, RH = 1000, int(s.get("row_height", 96))
+    _m = ImageDraw.Draw(Image.new("L", (1, 1)))
+    side = RW // 2 - 70                                        # max width of a team name
+    rows = []
+    for i, r in enumerate(s["draw"]):
+        imgs = []
+        for hl in (False, True):
+            im = Image.new("RGBA", (RW, RH), (0, 0, 0, 0)); d = ImageDraw.Draw(im)
+            bg = (30, 64, 52, 255) if hl else ((18, 36, 44, 235) if i % 2 == 0 else (12, 28, 34, 235))
+            d.rounded_rectangle((0, 0, RW - 1, RH - 1), 16, fill=bg, outline=GREEN + (255,) if hl else None, width=4 if hl else 0)
+            for txt, right in ((r["home"], True), (r["away"], False)):
+                f = font(F_BLACK_I, 48)
+                while f.size > 26 and _m.textlength(txt, font=f) > side - 20: f = font(F_BLACK_I, f.size - 2)
+                x = RW / 2 - 62 if right else RW / 2 + 62
+                d.text((x, RH / 2 + 1), txt, font=f, fill=WHITE, anchor="rm" if right else "lm")
+            pc = YELLOW if r.get("hot") else (34, 58, 66)
+            d.rounded_rectangle((RW / 2 - 38, 18, RW / 2 + 38, RH - 18), (RH - 36) // 2, fill=pc + (255,))
+            d.text((RW / 2, RH / 2 + 1), "VS", font=font(F_BLACK_I, 30), fill=INK if r.get("hot") else WHITE, anchor="mm")
+            imgs.append(im)
+        rows.append(imgs)
+    head = Image.new("RGBA", (RW, 40), (0, 0, 0, 0))
+    ImageDraw.Draw(head).text((RW / 2, 20), s.get("subtitle", ""), font=font(F_XB_I, 30), fill=(170, 190, 200), anchor="mm")
+    tag_txt = s.get("tag", "ΚΛΗΡΩΣΗ")
+    tf = font(F_XB_I, 40)
+    tw = int(_m.textlength(tag_txt, font=tf)) + 60
+    tag = Image.new("RGBA", (tw + 20, 60), (0, 0, 0, 0))
+    para(ImageDraw.Draw(tag), (0, 0), tw, 56, 14, YELLOW)
+    ImageDraw.Draw(tag).text((tw / 2 + 4, 28), tag_txt, font=tf, fill=INK, anchor="mm")
+    keys = [[[_norm(t) for t in seq.split()] for seq in r.get("keys", [r["home"], r["away"]])] for r in s["draw"]]
+    return dict(rows=rows, head=head, tag=tag, keys=keys, RW=RW, RH=RH)
+
+def board_prerender(s):
+    """Standings («table») or cup draw («draw») slide."""
+    return draw_prerender(s) if s.get("type") == "draw" else table_prerender(s)
+
 def table_highlights(T, words, t, hold=1.8):
     """Rows whose team is being said (longest key match wins, so «Ομόνοια 29Μ» ≠ «Ομόνοια»)."""
     hl = set(); ws = [_norm(w[2]) for w in words]
@@ -1187,8 +1225,8 @@ def main():
         elif kind == "hook":
             layers.append([story_layer(s, rnd, body=False, size=int(s.get("size", 150))),
                            hook_background(os.path.join(HERE, s["image"]) if s.get("image") else None)])
-        elif s.get("type") == "table":
-            layers.append([None, {"table": table_prerender(s)}])
+        elif s.get("type") in ("table", "draw"):
+            layers.append([None, {"table": board_prerender(s)}])
         else:
             img_path = os.path.join(HERE, s["image"]) if s.get("image") else None
             if img_path and os.path.exists(img_path):
@@ -1198,11 +1236,12 @@ def main():
 
     FCARD = follow_card(cfg) if FOLLOW else None
     for kind_, s_ in segments:
-        if kind_ == "story" and s_.get("type") == "table" and cfg.get("table_still"):
+        if kind_ == "story" and s_.get("type") in ("table", "draw") and (s_.get("still") or cfg.get("table_still")):
+            name = s_.get("still") or cfg["table_still"]
             still = base.copy(); still.alpha_composite(title, ((W - title.width) // 2, TITLE_Y))
-            draw_table(still, table_prerender(s_), 99, TOP - 20, reveal=False)
-            still.convert("RGB").save(cfg["table_still"] if os.path.isabs(cfg["table_still"]) else os.path.join(os.path.dirname(out), cfg["table_still"]), quality=95)
-            print("still:", cfg["table_still"])
+            draw_table(still, board_prerender(s_), 99, TOP - 20, reveal=False)
+            still.convert("RGB").save(name if os.path.isabs(name) else os.path.join(os.path.dirname(out), name), quality=95)
+            print("still:", name)
     video = os.path.join(tmp, "video.mp4")
     proc = subprocess.Popen(["ffmpeg", "-y", "-loglevel", "error", "-f", "rawvideo", "-pix_fmt", "rgba",
                              "-s", f"{W}x{H}", "-r", str(FPS), "-i", "-", "-c:v", "libx264", "-preset", "medium",

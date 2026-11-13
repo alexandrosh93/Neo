@@ -125,6 +125,15 @@ def story_slide(s, cfg, rnd, badge):
     return img
 
 
+def draw_slide(s, cfg, rnd, badge):
+    """Cup draw: every tie on one slide (same rows as the reel)."""
+    img = _bg()
+    top = _header(img, rnd, cfg, badge) + 40
+    B.draw_table(img, B.board_prerender(s), 99, top, reveal=False)
+    _footer(img, cfg)
+    return img
+
+
 def cta(cfg, rnd, badge):
     img = _bg()
     _header(img, rnd, cfg, badge, width=760, y=70)
@@ -157,7 +166,8 @@ def make_carousel(src, out_dir):
     rnd = random.Random(7)
     badge = B.date_badge(B.reel_date(cfg)) if cfg.get("show_date", True) else None
     os.makedirs(out_dir, exist_ok=True)
-    slides = [cover(cfg, rnd, badge)] + [story_slide(s, cfg, rnd, badge) for s in cfg["stories"]
+    slides = [cover(cfg, rnd, badge)] + [draw_slide(s, cfg, rnd, badge) if s.get("type") == "draw" else
+                                         story_slide(s, cfg, rnd, badge) for s in cfg["stories"]
                                          if s.get("type") != "table"] + [cta(cfg, rnd, badge)]
     paths = []
     for i, im in enumerate(slides, 1):
