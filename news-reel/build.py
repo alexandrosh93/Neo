@@ -653,13 +653,15 @@ def photo_frame(path, rnd, size=(W, 690)):
         fd.line([(0, y), (tw, y)], fill=BG2 + (a,))
     return {"photo": im, "frame": frame, "size": size, "inset": (0, 0), "fade": fade}
 
-def hook_background(path):
-    """Full-bleed photo (cover crop, oversized for zoom) for the opening hook."""
+def hook_background(path, focus=None):
+    """Full-bleed photo (cover crop, oversized for zoom) for the opening hook.
+    focus = [x, y] (0..1) of the photo to keep in view, e.g. a scoreboard off-centre."""
     if not path or not os.path.exists(path):
         return None
     im = Image.open(path).convert("RGB")
     k = max(W / im.width, H / im.height) * 1.15
     im = im.resize((int(im.width * k), int(im.height * k)), Image.LANCZOS)
+    im.focus = tuple(focus) if focus else (0.5, 0.5)
     return im
 
 _grad = None
@@ -677,7 +679,9 @@ def hook_frame(bg, t, dur):
         z = 1.0 + 0.10 * (t / max(dur, 0.1))  # fast push-in
         k0 = min(bg.width / W, bg.height / H)
         cw, ch = int(W * k0 / z), int(H * k0 / z)
-        cx, cy = (bg.width - cw) // 2, (bg.height - ch) // 2
+        fx, fy = getattr(bg, "focus", (0.5, 0.5))
+        cx = min(max(int(fx * bg.width - cw / 2), 0), bg.width - cw)
+        cy = min(max(int(fy * bg.height - ch / 2), 0), bg.height - ch)
         img = bg.crop((cx, cy, cx + cw, cy + ch)).resize((W, H), Image.BILINEAR).convert("RGBA")
     img.alpha_composite(_grad)
     return img
@@ -1224,7 +1228,7 @@ def main():
             layers.append([None, None])
         elif kind == "hook":
             layers.append([story_layer(s, rnd, body=False, size=int(s.get("size", 150))),
-                           hook_background(os.path.join(HERE, s["image"]) if s.get("image") else None)])
+                           hook_background(os.path.join(HERE, s["image"]) if s.get("image") else None, s.get("focus"))])
         elif s.get("type") in ("table", "draw"):
             layers.append([None, {"table": board_prerender(s)}])
         else:
