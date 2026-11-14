@@ -653,7 +653,7 @@ def photo_frame(path, rnd, size=(W, 690)):
         fd.line([(0, y), (tw, y)], fill=BG2 + (a,))
     return {"photo": im, "frame": frame, "size": size, "inset": (0, 0), "fade": fade}
 
-def hook_background(path, focus=None):
+def hook_background(path, focus=None, blur=0):
     """Full-bleed photo (cover crop, oversized for zoom) for the opening hook.
     focus = [x, y] (0..1) of the photo to keep in view, e.g. a scoreboard off-centre."""
     if not path or not os.path.exists(path):
@@ -661,7 +661,76 @@ def hook_background(path, focus=None):
     im = Image.open(path).convert("RGB")
     k = max(W / im.width, H / im.height) * 1.15
     im = im.resize((int(im.width * k), int(im.height * k)), Image.LANCZOS)
+    if blur: im = im.filter(ImageFilter.GaussianBlur(blur))
     im.focus = tuple(focus) if focus else (0.5, 0.5)
+    return im
+
+def flag_img(code, w, h):
+    """Simple national flags drawn in code (crisp at any size)."""
+    im = Image.new("RGB", (w, h), (255, 255, 255)); d = ImageDraw.Draw(im)
+    if code == "gr":
+        blue = (13, 94, 175); sh = h / 9
+        for i in range(0, 9, 2): d.rectangle((0, i * sh, w, (i + 1) * sh), fill=blue)
+        c = sh * 5
+        d.rectangle((0, 0, c, c), fill=blue)
+        d.rectangle((0, 2 * sh, c, 3 * sh), fill=(255, 255, 255))
+        d.rectangle((2 * sh, 0, 3 * sh, c), fill=(255, 255, 255))
+    elif code == "nl":
+        d.rectangle((0, 0, w, h / 3), fill=(174, 28, 40)); d.rectangle((0, 2 * h / 3, w, h), fill=(33, 70, 139))
+    elif code == "cy":
+        d.ellipse((w * 0.3, h * 0.25, w * 0.7, h * 0.65), fill=(213, 120, 0))
+    elif code == "de":
+        d.rectangle((0, 0, w, h / 3), fill=(0, 0, 0)); d.rectangle((0, h / 3, w, 2 * h / 3), fill=(221, 0, 0))
+        d.rectangle((0, 2 * h / 3, w, h), fill=(255, 206, 0))
+    elif code == "rs":
+        d.rectangle((0, 0, w, h / 3), fill=(198, 54, 60)); d.rectangle((0, h / 3, w, 2 * h / 3), fill=(12, 64, 118))
+    elif code == "me":
+        d.rectangle((0, 0, w, h), fill=(197, 12, 30)); d.rectangle((w * 0.05, h * 0.07, w * 0.95, h * 0.93), outline=(212, 175, 55), width=max(2, h // 18))
+    return im
+
+def _flag_disc(code, D):
+    """Round flag with a white ring and a soft shadow."""
+    S4 = D * 4
+    fl = flag_img(code, int(S4 * 1.5), S4)
+    fl = fl.crop(((fl.width - S4) // 2 if code != "gr" else 0, 0, ((fl.width - S4) // 2 if code != "gr" else 0) + S4, S4))
+    mask = Image.new("L", (S4, S4), 0); ImageDraw.Draw(mask).ellipse((0, 0, S4 - 1, S4 - 1), fill=255)
+    disc = Image.new("RGBA", (S4, S4), (0, 0, 0, 0)); disc.paste(fl, (0, 0), mask)
+    ImageDraw.Draw(disc).ellipse((0, 0, S4 - 1, S4 - 1), outline=(255, 255, 255, 255), width=S4 // 22)
+    disc = disc.resize((D, D), Image.LANCZOS)
+    out = Image.new("RGBA", (D + 40, D + 40), (0, 0, 0, 0))
+    sh = Image.new("RGBA", out.size, (0, 0, 0, 0)); ImageDraw.Draw(sh).ellipse((20, 28, D + 20, D + 28), fill=(0, 0, 0, 150))
+    out.alpha_composite(sh.filter(ImageFilter.GaussianBlur(10))); out.alpha_composite(disc, (20, 20))
+    return out
+
+def scoreboard_card(sb):
+    """Final-score card for the hook: flags, team names, big score (hook.scoreboard in script.json)."""
+    CWd, CHt = 980, 470
+    im = Image.new("RGBA", (CWd + 80, CHt + 110), (0, 0, 0, 0))
+    ox, oy = 40, 50
+    glow = Image.new("RGBA", im.size, (0, 0, 0, 0))
+    ImageDraw.Draw(glow).rounded_rectangle((ox, oy, ox + CWd, oy + CHt), 40, fill=GREEN + (120,))
+    im.alpha_composite(glow.filter(ImageFilter.GaussianBlur(26)))
+    d = ImageDraw.Draw(im)
+    d.rounded_rectangle((ox, oy, ox + CWd, oy + CHt), 40, fill=(8, 22, 28, 242), outline=GREEN + (255,), width=6)
+    # label on the top edge
+    lab = sb.get("label", "ΤΕΛΙΚΟ")
+    lf = font(F_XB_I, 44); lw = int(d.textlength(lab, font=lf)) + 70
+    para(d, (ox + (CWd - lw) / 2, oy - 34), lw, 66, 14, YELLOW)
+    d.text((ox + CWd / 2 + 7, oy - 1), lab, font=lf, fill=INK, anchor="mm")
+    cy = oy + 205
+    for code, name, cx in ((sb.get("home_flag"), sb["home"], ox + 175), (sb.get("away_flag"), sb["away"], ox + CWd - 175)):
+        if code:
+            disc = _flag_disc(code, 190); im.alpha_composite(disc, (int(cx - disc.width / 2), int(cy - disc.height / 2 - 10)))
+        nf = font(F_BLACK_I, 52)
+        while nf.size > 30 and d.textlength(name, font=nf) > 300: nf = font(F_BLACK_I, nf.size - 2)
+        d.text((cx, oy + 365), name, font=nf, fill=WHITE, anchor="mm")
+    h, a = sb["score"]
+    sf = font(F_BLACK_I, 250)
+    d.text((ox + CWd / 2 - 105, cy + 8), str(h), font=sf, fill=WHITE, anchor="mm", stroke_width=4, stroke_fill=INK)
+    d.text((ox + CWd / 2 + 115, cy + 8), str(a), font=sf, fill=YELLOW, anchor="mm", stroke_width=4, stroke_fill=INK)
+    d.rounded_rectangle((ox + CWd / 2 - 18, cy + 2, ox + CWd / 2 + 26, cy + 20), 8, fill=(150, 170, 180, 255))
+    if sb.get("sub"):
+        d.text((ox + CWd / 2, oy + CHt - 38), sb["sub"], font=font(F_XB_I, 34), fill=(150, 170, 180), anchor="mm")
     return im
 
 _grad = None
@@ -1228,7 +1297,7 @@ def main():
             layers.append([None, None])
         elif kind == "hook":
             layers.append([story_layer(s, rnd, body=False, size=int(s.get("size", 150))),
-                           hook_background(os.path.join(HERE, s["image"]) if s.get("image") else None, s.get("focus"))])
+                           hook_background(os.path.join(HERE, s["image"]) if s.get("image") else None, s.get("focus"), s.get("blur", 0))])
         elif s.get("type") in ("table", "draw"):
             layers.append([None, {"table": board_prerender(s)}])
         else:
@@ -1255,9 +1324,13 @@ def main():
         n = int(round(dur * FPS))
         if kind == "hook":
             bgimg = rows
+            SB = scoreboard_card(s["scoreboard"]) if s.get("scoreboard") else None
             for f in range(n):
                 t = f / FPS
                 img = hook_frame(bgimg, t, dur)
+                if SB is not None:   # readable on frame 0, settles with a small punch, then a slow push-in
+                    k = 1.0 + 0.06 * (1 - ease(t / 0.3)) + 0.03 * (t / max(dur, 0.1))
+                    place(img, SB, W / 2, int(s["scoreboard"].get("y", 420)), k)
                 if logo: img.alpha_composite(logo, ((W - logo.width) // 2, H - logo.height - LOGO_BOTTOM))
                 if BADGE: img.alpha_composite(BADGE, (W - BADGE.width - 4, 70))
                 # punch-in: starts big (already readable on frame 0), settles fast
